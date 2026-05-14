@@ -1,0 +1,306 @@
+{% extends 'base.html' %}
+
+{% block title %}YouTube Task Entry{% endblock %}
+
+{% block content %}
+<style>
+    .yt-entry-shell {
+        --yt-red: #e60000;
+        --yt-red-dark: #b90000;
+        --yt-ink: #1f2430;
+        --yt-soft: #fff3f3;
+        --yt-line: #ffd3d3;
+    }
+    .yt-hero {
+        background: linear-gradient(130deg, #ff1f1f 0%, #d10000 70%);
+        color: #fff;
+        border-radius: 14px;
+        padding: 1.5rem;
+        box-shadow: 0 10px 22px rgba(209, 0, 0, 0.25);
+        margin-bottom: 1rem;
+    }
+    .yt-hero h2 { margin: 0 0 0.45rem; font-weight: 800; }
+    .yt-hero p { margin: 0 0 0.9rem; opacity: 0.95; }
+    .yt-hero-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    .yt-hero-copy { flex: 1 1 360px; }
+    .yt-hero .btn {
+        border-radius: 999px;
+        padding: 0.55rem 1.1rem;
+        font-weight: 700;
+    }
+    .yt-hero .btn-light {
+        color: var(--yt-red-dark);
+    }
+    .metric-card {
+        border: 1px solid #f3dede;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        background: linear-gradient(180deg, #ffffff 0%, #fff7f7 100%);
+        height: 100%;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        position: relative;
+        overflow: hidden;
+        min-height: 210px;
+    }
+    .metrics-one-row {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.9rem;
+        margin-bottom: 1rem;
+    }
+    @media (max-width: 992px) {
+        .metrics-one-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+    @media (max-width: 576px) {
+        .metrics-one-row {
+            grid-template-columns: 1fr;
+        }
+    }
+    .metric-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 22px rgba(204, 45, 45, 0.14);
+    }
+    .metric-card::after {
+        content: "";
+        position: absolute;
+        right: -18px;
+        top: -18px;
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: rgba(230, 0, 0, 0.08);
+    }
+    .metric-chip {
+        display: inline-block;
+        margin-bottom: 0.45rem;
+        border: 1px solid #f5c4c4;
+        color: #b10000;
+        background: #fff0f0;
+        border-radius: 999px;
+        padding: 0.12rem 0.55rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+    .metric-label {
+        font-size: 0.86rem;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        color: #7a808f;
+        margin-bottom: 0.45rem;
+        font-weight: 700;
+    }
+    .metric-value {
+        font-size: 2rem;
+        font-weight: 800;
+        color: var(--yt-ink);
+        line-height: 1.1;
+    }
+    .metric-hint {
+        color: #8b92a5;
+        font-size: 0.92rem;
+        margin-top: 0.35rem;
+    }
+    .graph-card, .subs-card {
+        border: 1px solid #f2e5e5;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        background: #fff;
+        overflow: hidden;
+    }
+    .graph-head, .subs-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #f5eaea;
+        padding: 0.9rem 1rem;
+    }
+    .graph-head h5, .subs-head h5 {
+        margin: 0;
+        font-weight: 700;
+        color: #202637;
+    }
+    .graph-note {
+        background: var(--yt-soft);
+        color: #9d1f1f;
+        border: 1px solid var(--yt-line);
+        padding: 0.22rem 0.55rem;
+        border-radius: 999px;
+        font-size: 0.74rem;
+        font-weight: 700;
+    }
+    .subs-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 0.75rem;
+        padding: 1rem;
+    }
+    .sub-card {
+        border: 1px solid #efd7d7;
+        border-radius: 12px;
+        padding: 0.8rem;
+        background: linear-gradient(165deg, #fff 0%, #fff5f5 100%);
+        transition: all 0.2s ease;
+    }
+    .sub-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 16px rgba(183, 39, 39, 0.12);
+        border-color: #f2bcbc;
+    }
+    .sub-meta {
+        font-size: 0.78rem;
+        color: #8a92a6;
+    }
+    .sub-title {
+        margin: 0;
+        font-weight: 700;
+        color: #1f2430;
+        font-size: 0.95rem;
+        line-height: 1.3;
+    }
+    .sub-actions {
+        margin-top: 0.55rem;
+        display: flex;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+    }
+    .btn-pill {
+        border-radius: 999px;
+        font-size: 0.76rem;
+        padding: 0.28rem 0.7rem;
+        font-weight: 700;
+    }
+    .yt-cta-bar {
+        margin-top: 0.9rem;
+        display: block;
+    }
+    .btn-enter-task {
+        width: 100%;
+        text-align: center;
+        background: #ffffff;
+        color: #b90000;
+        border: 2px solid #ffffff;
+        border-radius: 10px;
+        font-weight: 800;
+        padding: 0.7rem 1rem;
+        box-shadow: 0 8px 18px rgba(0,0,0,0.15);
+        transition: all 0.2s ease;
+    }
+    .btn-enter-task:hover {
+        transform: translateY(-2px);
+        background: #fff2f2;
+        color: #9c0000;
+        border-color: #ffe0e0;
+    }
+    .btn-refresh-top {
+        border-radius: 10px !important;
+        font-weight: 700 !important;
+        border-width: 2px !important;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+    }
+    @media (max-width: 768px) {
+        .btn-refresh-top {
+            width: 100%;
+        }
+    }
+</style>
+
+<div class="container py-4 yt-entry-shell">
+    <section class="yt-hero">
+        <div class="yt-hero-top">
+            <div class="yt-hero-copy">
+                <h2>YouTube Subscribe Task Entry</h2>
+                <p>See your latest YouTube performance snapshot, then move into task execution.</p>
+            </div>
+            <a href="{% url 'subscribers:scan_now' %}" class="btn btn-outline-light btn-refresh-top">Refresh Data</a>
+        </div>
+        <div class="yt-cta-bar">
+            <a href="{% url 'subscribers:youtube_tasks' %}" class="btn btn-enter-task">Enter YouTube Task Page</a>
+        </div>
+    </section>
+
+    <section class="metrics-one-row">
+        <div>
+            <div class="metric-card p-4">
+                <div class="metric-chip">YouTube</div>
+                <div class="metric-label">Total Subscribed</div>
+                <div class="metric-value">{{ total_subscribed }}</div>
+                <div class="metric-hint">Channels you follow</div>
+            </div>
+        </div>
+        <div>
+            <div class="metric-card p-4">
+                <div class="metric-chip">Audience</div>
+                <div class="metric-label">Channel Subscribers</div>
+                <div class="metric-value">{{ channel_subscriber_total }}</div>
+                <div class="metric-hint">Current audience size</div>
+            </div>
+        </div>
+        <div>
+            <div class="metric-card p-4">
+                <div class="metric-chip">Growth</div>
+                <div class="metric-label">New Subscribers</div>
+                <div class="metric-value">{{ new_subscribers }}</div>
+                <div class="metric-hint">Since previous scan</div>
+            </div>
+        </div>
+        <div>
+            <div class="metric-card p-4">
+                <div class="metric-chip">Score</div>
+                <div class="metric-label">Video Score</div>
+                <div class="metric-value">{{ video_score }}</div>
+                <div class="metric-hint">Reserved: {{ video_score_reserved }}</div>
+            </div>
+        </div>
+    </section>
+
+    <section class="graph-card mb-3">
+        <div class="graph-head">
+            <h5>Quick Performance Graph</h5>
+            <span class="graph-note">Live Snapshot</span>
+        </div>
+        <div class="p-3">
+            <canvas id="ytSingleGraph" height="110"></canvas>
+        </div>
+    </section>`n</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const score = {{ video_score|default:0 }};
+    const reserved = {{ video_score_reserved|default:0 }};
+    const subs = {{ total_subscribed|default:0 }};
+    const audience = {{ channel_subscriber_total|default:0 }};
+    const growth = {{ new_subscribers|default:0 }};
+
+    const singleCtx = document.getElementById("ytSingleGraph");
+    if (singleCtx) {
+        new Chart(singleCtx, {
+            type: "bar",
+            data: {
+                labels: ["Subscribed", "Audience", "New Subs", "Video Score", "Reserved"],
+                datasets: [{
+                    label: "Counts",
+                    data: [subs, audience, growth, score, reserved],
+                    backgroundColor: ["#ff8a8a", "#ff6666", "#ff4d4d", "#ff2b2b", "#c91a1a"],
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { position: "bottom" } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
+</script>
+{% endblock %}
+

@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+
+{% block title %}Video Score Details{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h1>Video Score Details</h1>
+            <p class="text-muted">Track your video watching progress and earned scores</p>
+        </div>
+    </div>
+
+    <!-- Score Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Available Score</h6>
+                    <h2 class="text-success">{{ video_score }}</h2>
+                    <small class="text-muted">Ready to use</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Reserved Score</h6>
+                    <h2 class="text-warning">{{ video_score_reserved }}</h2>
+                    <small class="text-muted">Pending approval</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Total Score</h6>
+                    <h2 class="text-primary">{{ total_video_score }}</h2>
+                    <small class="text-muted">All time</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Watch Time</h6>
+                    <h2>{{ total_watch_time_minutes }}</h2>
+                    <small class="text-muted">minutes total</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Score Information -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">How Video Score Works</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <h6 class="fw-bold">Earning Score</h6>
+                        <ul class="small">
+                            <li>Watch assigned videos to earn video score</li>
+                            <li>1 minute of watch time = 1 score point</li>
+                            <li>Score is awarded when you complete a watch task</li>
+                            <li>Completed tasks show score in the "Reserved" section</li>
+                        </ul>
+                    </div>
+                    <div class="mb-3">
+                        <h6 class="fw-bold">Score States</h6>
+                        <ul class="small">
+                            <li><strong>Reserved Score:</strong> Points earned but pending approval. Automatically becomes available after verification.</li>
+                            <li><strong>Available Score:</strong> Points ready to use for various purposes or rewards.</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h6 class="fw-bold">Tips</h6>
+                        <ul class="small">
+                            <li>Complete your watch tasks regularly to maximize score earnings</li>
+                            <li>Watch time is tracked automatically while you watch videos</li>
+                            <li>You can pause and resume videos - your progress is saved</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Quick Stats</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <small class="text-muted">Total Watch Events</small>
+                        <p class="fw-bold mb-0">{{ watch_events_count }}</p>
+                    </div>
+                    <div class="mb-2">
+                        <small class="text-muted">Average Session</small>
+                        <p class="fw-bold mb-0">
+                            {% if watch_events_count > 0 %}
+                                {{ total_watch_time_minutes|add:0|add:watch_events_count|add:-1|divisibleby:watch_events_count }} mins
+                            {% else %}
+                                --
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div>
+                        <small class="text-muted">Last Activity</small>
+                        <p class="fw-bold mb-0">
+                            {% if recent_watch_events %}
+                                {{ recent_watch_events.0.created_at|timesince }} ago
+                            {% else %}
+                                No activity yet
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Watch Events -->
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Recent Watch Activity</h5>
+                </div>
+                <div class="card-body">
+                    {% if recent_watch_events %}
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Video</th>
+                                        <th>Watch Duration</th>
+                                        <th>Session Time</th>
+                                        <th>Status</th>
+                                        <th>Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for event in recent_watch_events %}
+                                        <tr>
+                                            <td>
+                                                <strong>{{ event.video.title|truncatewords:5 }}</strong><br>
+                                                <small class="text-muted">{{ event.video.channel_title }}</small>
+                                            </td>
+                                            <td>
+                                                {{ event.watch_duration_seconds|add:0|add:30|divisibleby:60|yesno:"1," }}m 
+                                                {{ event.watch_duration_seconds|add:0|add:59|divisibleby:60|yesno:"0," }}s
+                                            </td>
+                                            <td>
+                                                {% if event.session_started_at and event.session_ended_at %}
+                                                    {{ event.session_ended_at|timesince:event.session_started_at }}
+                                                {% else %}
+                                                    --
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if event.is_completed %}
+                                                    <span class="badge bg-success">Completed</span>
+                                                {% else %}
+                                                    <span class="badge bg-warning">In Progress</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ event.created_at|date:"M d, Y H:i" }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="text-muted mb-0">No watch events recorded yet. Start watching videos to see activity here.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Back Button -->
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <a href="{% url 'subscribers:video_watch_tasks_list' %}" class="btn btn-outline-secondary">
+                ← Back to Watch Tasks
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,491 @@
+{% extends 'base.html' %}
+
+{% block title %}Your Tasks - NewYoutubers{% endblock %}
+
+{% block extra_css %}
+        .tasks-shell {
+            --theme-primary: #d80c0c;
+            --theme-primary-dark: #b80000;
+            --theme-soft-bg: #fff9f9;
+            --theme-soft-border: #f0d7d7;
+            --theme-header-a: #ff0000;
+            --theme-header-b: #ff4444;
+            --theme-label: #8c1a1a;
+        }
+
+        .tasks-shell.tasks-theme-facebook {
+            --theme-primary: #1877f2;
+            --theme-primary-dark: #0f5fc4;
+            --theme-soft-bg: #f3f8ff;
+            --theme-soft-border: #d4e3ff;
+            --theme-header-a: #1877f2;
+            --theme-header-b: #5a9cff;
+            --theme-label: #1e4f97;
+        }
+
+        .tasks-header {
+            background: linear-gradient(135deg, var(--theme-header-a) 0%, var(--theme-header-b) 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+        }
+
+        .tasks-header h1 {
+            margin: 0 0 0.5rem 0;
+        }
+
+        .task-panel {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .task-panel h2 {
+            color: var(--theme-primary);
+            margin: 0 0 1rem 0;
+            font-size: 1.2rem;
+        }
+
+        .activity-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+        }
+
+        .activity-item {
+            border: 1px solid var(--theme-soft-border);
+            border-radius: 8px;
+            background: var(--theme-soft-bg);
+            padding: 1rem;
+        }
+
+        .activity-item h3 {
+            margin: 0 0 0.45rem 0;
+            color: var(--theme-primary-dark);
+            font-size: 1rem;
+        }
+
+        .activity-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #333;
+            margin: 0;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.3rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .badge-active {
+            color: #0d7a2a;
+            background: #e8f9ed;
+        }
+
+        .badge-inactive {
+            color: #a01b1b;
+            background: #ffe5e5;
+        }
+
+        .actions {
+            margin-top: 1.25rem;
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .task-matrix {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .task-cell {
+            border: 1px solid var(--theme-soft-border);
+            border-radius: 8px;
+            background: var(--theme-soft-bg);
+            padding: 0.75rem;
+            display: grid;
+            gap: 0.55rem;
+            align-content: start;
+        }
+
+        .task-cell-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .task-user {
+            min-width: 0;
+        }
+
+        .task-user strong {
+            color: var(--theme-primary-dark);
+            display: block;
+            overflow-wrap: anywhere;
+        }
+
+        .task-meta {
+            display: grid;
+            gap: 0.55rem;
+            margin: 0;
+        }
+
+        .task-meta-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.75rem;
+            border-top: 1px solid var(--theme-soft-border);
+            padding-top: 0.55rem;
+            font-size: 0.88rem;
+        }
+
+        .task-meta-row dt {
+            color: var(--theme-label);
+            font-weight: 700;
+        }
+
+        .task-meta-row dd {
+            margin: 0;
+            color: #333;
+            text-align: right;
+        }
+
+        .btn-subscribe {
+            background: var(--theme-primary);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 0.45rem 0.8rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .btn-subscribe:hover {
+            background: var(--theme-primary-dark);
+        }
+
+        .btn-subscribe:disabled {
+            background: #c9a4a4;
+            cursor: not-allowed;
+        }
+
+        .task-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            align-items: center;
+        }
+
+        .task-actions form {
+            margin: 0;
+        }
+
+        .inline-settings-form {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) minmax(120px, 180px) auto;
+            gap: 0.75rem;
+            align-items: end;
+            margin: 1rem 0;
+        }
+
+        .inline-settings-form label {
+            display: grid;
+            gap: 0.35rem;
+            color: #8c1a1a;
+            font-size: 0.85rem;
+            font-weight: 700;
+        }
+
+        .inline-settings-form input {
+            border: 1px solid #f0d7d7;
+            border-radius: 6px;
+            padding: 0.6rem 0.7rem;
+            font: inherit;
+            min-width: 0;
+        }
+
+        @media (max-width: 760px) {
+            .inline-settings-form {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .btn-open {
+            display: inline-block;
+            padding: 0.45rem 0.8rem;
+            border-radius: 6px;
+            border: 1px solid var(--theme-primary);
+            color: var(--theme-primary);
+            background: #fff;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.88rem;
+        }
+
+        .btn-open:hover {
+            background: var(--theme-soft-bg);
+        }
+
+        .btn-mark-facebook {
+            background: #1877f2;
+        }
+
+        .btn-mark-facebook:hover {
+            background: #0f5fc4;
+        }
+
+        .subscribe-note {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 0.3rem;
+        }
+
+        .handle-note {
+            display: block;
+            margin-top: 0.2rem;
+            color: #666;
+            font-size: 0.82rem;
+        }
+
+        .subscribed-chip {
+            display: inline-block;
+            margin-left: 0.5rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 999px;
+            background: #e8f9ed;
+            color: #0d7a2a;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+
+        .missing-chip {
+            display: inline-block;
+            margin-left: 0.5rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 999px;
+            background: #ffe5e5;
+            color: #a01b1b;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+
+        .score-list {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+            display: grid;
+            gap: 0.55rem;
+        }
+
+        .score-item {
+            border: 1px solid var(--theme-soft-border);
+            border-radius: 8px;
+            padding: 0.65rem 0.75rem;
+            background: var(--theme-soft-bg);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .score-item strong {
+            color: var(--theme-primary-dark);
+        }
+
+        .section-divider {
+            scroll-margin-top: 1rem;
+        }
+{% endblock %}
+
+{% block content %}
+    <div class="container tasks-shell {% if task_mode == 'facebook' %}tasks-theme-facebook{% endif %}">
+        <section class="tasks-header">
+            {% if task_mode == "facebook" %}
+                <h1>Enter My Facebook Task</h1>
+                <p>Manage Facebook follow tasks from one place.</p>
+            {% else %}
+                <h1>Subscribe Task</h1>
+                <p>Track your current YouTube activity and subscription progress from one place.</p>
+            {% endif %}
+        </section>
+
+        <section class="task-panel">
+            <h2>{% if task_mode == "facebook" %}Your Facebook Activity{% else %}Your YouTube Activity{% endif %}</h2>
+            <div class="activity-grid">
+                {% if task_mode == "facebook" %}
+                    <article class="activity-item">
+                        <h3>Facebook Connection</h3>
+                        <p class="activity-value">{% if is_facebook_connected %}Connected{% else %}Not Connected{% endif %}</p>
+                    </article>
+                    <article class="activity-item">
+                        <h3>Facebook Profile</h3>
+                        <p class="activity-value">{{ facebook_profile.name|default:user.username }}</p>
+                    </article>
+                {% else %}
+                    <article class="activity-item">
+                        <h3>Subscribers Gained</h3>
+                        <p class="activity-value">{{ total_subscriber|default:0 }}</p>
+                    </article>
+                    <article class="activity-item">
+                        <h3>Your Score</h3>
+                        <p class="activity-value">{{ profile.score|default:0 }}</p>
+                    </article>
+                {% endif %}
+            </div>
+
+            <div class="actions">
+                <a href="{% url 'subscribers:home' %}" class="btn btn-secondary">Back To Home</a>
+                {% if task_mode == "facebook" %}
+                    {% if facebook_oauth_ready %}
+                        <a href="{% url 'subscribers:facebook_connect' %}" class="btn btn-primary">
+                            {% if is_facebook_connected %}Reconnect Facebook{% else %}Connect Facebook{% endif %}
+                        </a>
+                    {% endif %}
+                {% else %}
+                    <a href="{% url 'subscribers:list_subscriptions' %}" class="btn btn-primary">View My Subscribed Channels</a>
+                    {% if not is_google_connected %}
+                        <a href="{% url 'subscribers:google_connect' %}" class="btn btn-primary">Connect Google</a>
+                    {% else %}
+                        <a href="{% url 'subscribers:youtube_tasks' %}" class="btn btn-primary">Refresh Activity</a>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </section>
+
+
+        {% if task_mode != "facebook" %}
+        <section class="task-panel section-divider" id="youtube-tasks">
+            <h2>Your YouTube Tasks</h2>
+            <p class="subscribe-note">
+                Last verify scan:
+                {% if profile.last_verified_sync_at %}
+                    {{ profile.last_verified_sync_at|date:"M d, Y H:i:s" }}
+                {% else %}
+                    Never
+                {% endif %}
+            </p>
+            {% if top_user_subscribe_tasks %}
+                <div class="task-matrix">
+                    {% for task in top_user_subscribe_tasks %}
+                        <article class="task-cell">
+                            <div class="task-cell-header">
+                                <div class="task-user">
+                                    <strong>{{ task.target_profile.handle|default:task.target_profile.user.username }}</strong>
+                                    {% if task.target_profile.handle %}
+                                        <span class="handle-note">{{ task.target_profile.handle }}</span>
+                                    {% endif %}
+                                </div>
+                                {% if task.verified_status %}
+                                    <span class="subscribed-chip">Verified</span>
+                                {% else %}
+                                    <span class="missing-chip">Not Verified</span>
+                                {% endif %}
+                            </div>
+
+                            {% if not task.verified_status %}
+                                <div class="task-actions">
+                                    {% if task.target_profile.handle %}
+                                        <a
+                                            class="btn-open"
+                                            href="https://www.youtube.com/{{ task.target_profile.handle }}"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                        >
+                                            Open Channel
+                                        </a>
+                                    {% endif %}
+                                    <form method="post" action="{% url 'subscribers:subscribe_top_user_channel' %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="target_profile_id" value="{{ task.target_profile.id }}">
+                                        <button
+                                            type="submit"
+                                            class="btn-subscribe"
+                                            {% if not is_google_connected %}disabled title="Connect Google first"{% endif %}
+                                        >
+                                            Subscribe
+                                        </button>
+                                    </form>
+                                </div>
+                            {% endif %}
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p>No top-user subscribe tasks yet.</p>
+            {% endif %}
+        </section>
+        {% endif %}
+
+        {% if task_mode == "facebook" %}
+        <section class="task-panel section-divider" id="facebook-tasks">
+            <h2>Your Facebook Tasks</h2>
+            <p class="subscribe-note">
+                Connect Facebook to create your Facebook profile by API and appear in Facebook follow tasks.
+            </p>
+            {% if not facebook_oauth_ready %}
+                <p>Facebook OAuth settings are missing. Add FACEBOOK_CLIENT_ID, FACEBOOK_CLIENT_SECRET, and FACEBOOK_REDIRECT_URI.</p>
+            {% elif not is_facebook_connected %}
+                <div class="actions">
+                    <a href="{% url 'subscribers:facebook_connect' %}" class="btn btn-primary">Connect Facebook</a>
+                </div>
+            {% else %}
+                <p class="subscribe-note">
+                    Connected as {{ facebook_profile.name|default:user.username }}.
+                </p>
+            {% endif %}
+            {% if facebook_follow_tasks %}
+                <div class="task-matrix">
+                    {% for task in facebook_follow_tasks %}
+                        <article class="task-cell">
+                            <div class="task-cell-header">
+                                <div class="task-user">
+                                    <strong>{{ task.target_facebook.name|default:task.target_profile.user.username }}</strong>
+                                    <span class="handle-note">Facebook connected profile</span>
+                                </div>
+                                {% if task.facebook_followed_status %}
+                                    <span class="subscribed-chip">Followed</span>
+                                {% else %}
+                                    <span class="missing-chip">Pending</span>
+                                {% endif %}
+                            </div>
+
+                            <div class="task-actions">
+                                <a
+                                    class="btn-open btn-facebook"
+                                    href="{{ task.target_facebook.profile_url }}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    Open Facebook
+                                </a>
+                                {% if not task.facebook_followed_status %}
+                                    <form method="post" action="{% url 'subscribers:mark_facebook_followed' %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="target_profile_id" value="{{ task.target_profile.id }}">
+                                        <button type="submit" class="btn-subscribe btn-mark-facebook">
+                                            I Followed
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p>No Facebook follow tasks yet.</p>
+            {% endif %}
+        </section>
+        {% endif %}
+    </div>
+{% endblock %}

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Login</title>
+    <style>
+        :root {
+            --yt-red: #ff1f1f;
+            --yt-dark-red: #c80000;
+            --white: #ffffff;
+            --ink: #262626;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+            background: linear-gradient(120deg, var(--yt-red), var(--yt-dark-red));
+            display: grid;
+            place-items: center;
+            padding: 16px;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 540px;
+            background: var(--white);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 22px 44px rgba(0, 0, 0, 0.2);
+            color: var(--ink);
+        }
+
+        h1 {
+            margin: 0 0 10px;
+            color: var(--yt-dark-red);
+        }
+
+        .subtitle {
+            margin: 0 0 16px;
+            line-height: 1.6;
+        }
+
+        .google-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            border: 1px solid #c8d6ed;
+            border-radius: 12px;
+            padding: 12px 16px;
+            font-weight: 700;
+            color: #222;
+            background: #fff;
+            text-decoration: none;
+        }
+
+        .google-btn:hover {
+            border-color: #a6a6a6;
+        }
+
+        .dot {
+            color: var(--yt-red);
+            margin-right: 8px;
+        }
+
+        .actions {
+            margin-top: 14px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .back {
+            text-align: center;
+        }
+
+        .warn {
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid #ffc8c8;
+            background: #fff2f2;
+            color: #a10f0f;
+        }
+
+        .messages {
+            margin-bottom: 12px;
+        }
+
+        .msg {
+            margin-bottom: 8px;
+            border-radius: 8px;
+            padding: 10px 12px;
+            border: 1px solid #ffc8c8;
+            background: #fff2f2;
+            color: #a10f0f;
+        }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <h1>Login with Google</h1>
+        <p class="subtitle">Only Google format login is enabled for this website.</p>
+
+        {% if messages %}
+            <section class="messages">
+                {% for message in messages %}
+                    <div class="msg">{{ message }}</div>
+                {% endfor %}
+            </section>
+        {% endif %}
+
+        {% if not oauth_ready %}
+            <div class="warn">Google OAuth keys are missing in environment settings.</div>
+        {% endif %}
+
+        <div class="actions">
+            <a class="google-btn" href="{% url 'subscribers:google_connect' %}">
+                <span class="dot">G</span> Continue with Google
+            </a>
+            <p class="back"><a href="{% url 'subscribers:home' %}">Back to first page</a></p>
+        </div>
+    </main>
+</body>
+</html>

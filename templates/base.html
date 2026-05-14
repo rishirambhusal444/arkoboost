@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}NewYoutubers - YouTube Analytics & Growth Tools{% endblock %}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #333;
+            background: #f9f9f9;
+        }
+
+        /* Navigation */
+        nav {
+            background: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+        }
+
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            text-decoration: none;
+        }
+
+        .logo::before {
+            content: "▶";
+            font-size: 1.5rem;
+        }
+
+        nav ul {
+            display: flex;
+            list-style: none;
+            gap: 2rem;
+        }
+
+        .logo-red {
+            color: #FF0000;
+        }
+
+        .logo-blue {
+            color: #1877f2;
+        }
+
+        nav a {
+            text-decoration: none;
+            color: #333;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+
+        nav a:hover {
+            color: #FF0000;
+        }
+
+        /* Messages */
+        .messages {
+            padding: 1rem 2rem;
+            margin-top: 84px;
+        }
+
+        .message {
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 4px;
+            animation: slideIn 0.3s ease;
+        }
+
+        .message.error {
+            background: #FFE0E0;
+            color: #C41E3A;
+            border-left: 4px solid #FF0000;
+        }
+
+        .message.success {
+            background: #E0FFE0;
+            color: #0B7B00;
+            border-left: 4px solid #00AA00;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(-10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        /* Main Content */
+        main {
+            min-height: calc(100vh - 200px);
+            padding-top: 84px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.3s ease;
+            font-size: 1rem;
+        }
+
+        .btn-primary {
+            background: #FF0000;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #CC0000;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(255,0,0,0.3);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #FF0000;
+            border: 2px solid #FF0000;
+        }
+
+        .btn-secondary:hover {
+            background: #FF0000;
+            color: white;
+        }
+
+        .btn-google {
+            background: white;
+            color: #333;
+            border: 2px solid #FF0000;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .btn-google:hover {
+            background: #FFE0E0;
+        }
+
+        .google-icon {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Footer */
+        footer {
+            background: #333;
+            color: white;
+            text-align: center;
+            padding: 2rem;
+            margin-top: 3rem;
+        }
+
+        footer p {
+            margin: 0.5rem 0;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-top: 1rem;
+        }
+
+        .footer-links a {
+            color: #FF0000;
+            text-decoration: none;
+        }
+
+        .footer-links a:hover {
+            text-decoration: underline;
+        }
+
+        {% block extra_css %} {% endblock %}
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <nav>
+        <a class="logo" href="{% url 'subscribers:home' %}">
+            <span class="logo-red">GROW</span>
+            <span class="logo-blue">UP</span>
+            <span class="logo-red">with</span>
+            <span class="logo-blue">US</span>
+        </a>
+        <ul>
+            {% if user.is_authenticated %}
+                <li>
+                    <a href="{% url 'subscribers:profile' %}">
+                        {% if user.subscriber_profile %}
+                            {{ user.subscriber_profile.channel_title|default:user.subscriber_profile.handle|default:user.handle|default:user.username }}
+                        {% else %}
+                            {{ user.handle|default:user.username }}
+                        {% endif %}
+                    </a>
+                </li>
+                <li><a href="{% url 'subscribers:logout' %}">Logout</a></li>
+            {% else %}
+                <li><a href="{% url 'subscribers:profile' %}">Profile</a></li>
+                <li><a href="{% url 'subscribers:login' %}">Login</a></li>
+            {% endif %}
+        </ul>
+    </nav>
+
+    {% if messages %}
+    <div class="messages">
+        {% for message in messages %}
+        <div class="message {{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <p>&copy; 2026 NewYoutubers. All rights reserved.</p>
+        <div class="footer-links">
+            <a href="#">Privacy Policy</a>
+            <a href="#">Terms of Service</a>
+            <a href="#">Contact</a>
+        </div>
+    </footer>
+</body>
+</html>

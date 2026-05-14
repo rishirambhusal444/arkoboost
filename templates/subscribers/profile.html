@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Profile - NewYoutubers{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'subscribers/css/profile.css' %}">
+{% endblock %}
+
+{% block content %}
+    <div class="container profile-shell profile-theme-{{ profile_theme }}">
+        <section class="tasks-entry">
+            <div class="task-cta-panel">
+                <div class="task-cta-buttons">
+                    <a href="{% url 'subscribers:enter_youtube_tasks' %}" class="task-cta-btn tasks">Subscribe </a>
+                    <a href="{% url 'subscribers:enter_watch_tasks' %}" class="task-cta-btn watch">Video view and 
+                         </a>
+                </div>
+            </div>
+        </section>
+
+        <section class="profile-card">
+            <h2>Progress & Contribution Summary</h2>
+            <div class="insight-grid">
+                <article class="insight-card">
+                    <h3>Score Balance</h3>
+                    <canvas id="scoreBalanceChart" height="170"></canvas>
+                    <p class="insight-note">Available vs reserved score and video score in one view.</p>
+                </article>
+                <article class="insight-card">
+                    <h3>Contribution Mix</h3>
+                    <canvas id="contributionMixChart" height="170"></canvas>
+                    <p class="insight-note">Subscribers, audience, views and video points contribution split.</p>
+                </article>
+                <article class="insight-card">
+                    <h3>Activity Signals</h3>
+                    <canvas id="activitySignalsChart" height="170"></canvas>
+                    <p class="insight-note">Live activity flags and growth indicators for current account.</p>
+                </article>
+            </div>
+        </section>
+
+
+        <section class="profile-card">
+            <h2>My Activity Cards</h2>
+            <div class="metric-grid">
+                <article class="metric-card">
+                    <h3>Total Subscribed Channel</h3>
+                    <p class="metric-value">{{ profile.subscribed_channel_count|default:0 }}</p>
+                </article>
+                <article class="metric-card">
+                    <h3>Your Added Subscribed Count</h3>
+                    <p class="metric-value">{{ profile.subscriber_change_since_last_scan|default:0 }}</p>
+                </article>
+                <article class="metric-card">
+                    <h3>Your Video Total View</h3>
+                    <p class="metric-value">{{ profile.channel_total_view_count|default:0 }}</p>
+                </article>
+                <article class="metric-card">
+                    <h3>Your Total View Hours</h3>
+                    <p class="metric-value">{{ my_total_view_hours|default:0 }}</p>
+                </article>
+            </div>
+        </section>
+
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        (function () {
+            const score = Number("{{ profile.score|default:0 }}");
+            const reserved = Number("{{ profile.reserved_score|default:0 }}");
+            const videoScore = Number("{{ profile.video_score|default:0 }}");
+            const videoReserved = Number("{{ profile.video_score_reserved|default:0 }}");
+            const subscribed = Number("{{ profile.subscribed_channel_count|default:0 }}");
+            const audience = Number("{{ profile.channel_subscriber_count|default:0 }}");
+            const views = Number("{{ profile.channel_total_view_count|default:0 }}");
+            const growth = Number("{{ profile.subscriber_change_since_last_scan|default:0 }}");
+            const ytActive = "{{ profile.active_status_for_youtube|yesno:'1,0' }}" === "1" ? 1 : 0;
+            const videoActive = "{{ profile.active_status_for_video|yesno:'1,0' }}" === "1" ? 1 : 0;
+            const baseActive = "{{ profile.active_status|yesno:'1,0' }}" === "1" ? 1 : 0;
+
+            const balanceCtx = document.getElementById("scoreBalanceChart");
+            if (balanceCtx) {
+                new Chart(balanceCtx, {
+                    type: "bar",
+                    data: {
+                        labels: ["Score", "Reserved", "Video Score", "Video Reserved"],
+                        datasets: [{
+                            data: [score, reserved, videoScore, videoReserved],
+                            backgroundColor: ["#2a71ff", "#6f9dff", "#ff5d5d", "#ff9a9a"],
+                            borderRadius: 8
+                        }]
+                    },
+                    options: {
+                        plugins: { legend: { display: false } },
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+            }
+
+            const mixCtx = document.getElementById("contributionMixChart");
+            if (mixCtx) {
+                new Chart(mixCtx, {
+                    type: "doughnut",
+                    data: {
+                        labels: ["Subscribed", "Audience", "Views", "Video Score"],
+                        datasets: [{
+                            data: [Math.max(subscribed, 1), Math.max(audience, 1), Math.max(views, 1), Math.max(videoScore, 1)],
+                            backgroundColor: ["#4f7cff", "#00a8a8", "#ff8a3d", "#ff4f7a"],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        plugins: { legend: { position: "bottom" } }
+                    }
+                });
+            }
+
+            const activityCtx = document.getElementById("activitySignalsChart");
+            if (activityCtx) {
+                new Chart(activityCtx, {
+                    type: "line",
+                    data: {
+                        labels: ["Base Active", "YouTube Active", "Video Active", "Growth", "View Hours"],
+                        datasets: [{
+                            label: "Signals",
+                            data: [baseActive, ytActive, videoActive, growth, Number("{{ my_total_view_hours|default:0 }}")],
+                            borderColor: "#2e63d8",
+                            backgroundColor: "rgba(46, 99, 216, 0.12)",
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 4
+                        }]
+                    },
+                    options: {
+                        plugins: { legend: { display: false } },
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+            }
+        })();
+    </script>
+{% endblock %}

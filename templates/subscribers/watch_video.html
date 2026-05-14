@@ -1,0 +1,177 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Watch Video{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'subscribers/css/watch_video.css' %}">
+{% endblock %}
+
+{% block content %}
+
+<div class="video-task-page">
+    <div class="video-task-container">
+        <section class="main-player-panel">
+            <div class="player-frame-wrap">
+                <div id="player"></div>
+            </div>
+            <div class="player-meta">
+                <h3 id="video-title">{{ initial_video_title }}</h3>
+                <p id="video-channel">{{ initial_video_channel }}</p>
+            </div>
+        </section>
+
+        <aside class="track-panel">
+            <h4>Tracking</h4>
+            <p>Status: <span id="status">Idle</span></p>
+            <p>Watch Time: <span id="time">0</span> sec</p>
+            <p>Tab Active: <span id="tab">Yes</span></p>
+            <p style="font-size:0.85rem; color:#667085; margin-top:0.5rem;">
+                Save mode: watch time is stored on video switch, tab hide, or page exit.
+            </p>
+        </aside>
+    </div>
+
+    <section class="video-grid-wrap">
+        <h4 class="mb-3">Videos</h4>
+        <div class="video-grid">
+            {% for item in featured_videos %}
+            <button class="video-card"
+                data-video-id="{{ item.video_id }}"
+                data-title="{{ item.title }}"
+                data-channel="{{ item.channel_title }}">
+                <img src="{{ item.thumbnail }}">
+                <span>{{ item.title|truncatechars:48 }}</span>
+            </button>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+
+<script>
+let player;
+let currentVideoId = "{{ initial_video_id }}";
+
+let watchTime = 0;
+let isPlaying = false;
+let isTabActive = true;
+let timer = null;
+let pendingWatchSeconds = 0;
+
+// CSRF
+function getCookie(name) {
+    let value = null;
+    document.cookie.split(';').forEach(c => {
+        if (c.trim().startsWith(name + '=')) {
+            value = decodeURIComponent(c.split('=')[1]);
+        }
+    });
+    return value;
+}
+
+// UI update
+function updateUI() {
+    document.getElementById("time").textContent = watchTime;
+    document.getElementById("tab").textContent = isTabActive ? "Yes" : "No";
+}
+
+// TIMER
+function startTimer() {
+    if (timer) return;
+    timer = setInterval(() => {
+        if (isPlaying && isTabActive) {
+            watchTime++;
+            pendingWatchSeconds++;
+            updateUI();
+        }
+    }, 1000);
+}
+
+function stopTimer() {
+    clearInterval(timer);
+    timer = null;
+}
+
+function saveWatchTimeChunk(secondsToSave, videoId, useKeepalive = false) {
+    if (!videoId || secondsToSave <= 0) return;
+    fetch("/videos/save-watch-time/", {
+        method: "POST",
+        keepalive: useKeepalive,
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCookie("csrftoken")
+        },
+        body: JSON.stringify({
+            video_id: videoId,
+            watch_time: secondsToSave
+        })
+    }).catch(() => {});
+}
+
+// SAVE TO DB only on explicit flow events:
+// - switching video
+// - tab hidden / leaving page
+
+// PLAYER
+function onYouTubeIframeAPIReady() {
+    player = new YT.Player("player", {
+        videoId: currentVideoId,
+        events: {
+            onStateChange: function(e) {
+                if (e.data === YT.PlayerState.PLAYING) {
+                    isPlaying = true;
+                    startTimer();
+                    document.getElementById("status").textContent = "Playing";
+                } else {
+                    isPlaying = false;
+                    stopTimer();
+                    document.getElementById("status").textContent = "Paused";
+                }
+            }
+        }
+    });
+}
+
+// VIDEO SWITCH
+document.querySelectorAll(".video-card").forEach(card => {
+    card.onclick = () => {
+        if (pendingWatchSeconds > 0) {
+            saveWatchTimeChunk(pendingWatchSeconds, currentVideoId);
+            pendingWatchSeconds = 0;
+        }
+
+        currentVideoId = card.dataset.videoId;
+        watchTime = 0;
+
+        player.loadVideoById(currentVideoId);
+
+        document.getElementById("video-title").textContent = card.dataset.title;
+        document.getElementById("video-channel").textContent = card.dataset.channel;
+
+        updateUI();
+    };
+});
+
+// TAB CHECK
+document.addEventListener("visibilitychange", () => {
+    isTabActive = !document.hidden;
+    if (document.hidden && pendingWatchSeconds > 0) {
+        saveWatchTimeChunk(pendingWatchSeconds, currentVideoId, true);
+        pendingWatchSeconds = 0;
+    }
+    updateUI();
+});
+
+window.addEventListener("beforeunload", () => {
+    if (pendingWatchSeconds > 0) {
+        saveWatchTimeChunk(pendingWatchSeconds, currentVideoId, true);
+        pendingWatchSeconds = 0;
+    }
+});
+
+updateUI();
+</script>
+
+{% endblock %}

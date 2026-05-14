@@ -1,0 +1,199 @@
+from django.contrib import admin
+from django.contrib import messages
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+
+from .models import (
+    FacebookProfile,
+    FacebookTaskAssing,
+    SubscriberProfile,
+    TopUserSubscribeTask,
+    User,
+    Video,
+)
+
+
+@admin.register(User)
+class UserAdmin(BaseUserAdmin):
+    fieldsets = (
+        (None, {"fields": ("username", "password")}),
+        ("YouTube", {"fields": ("handle", "email")}),
+        ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
+        ("Important dates", {"fields": ("last_login", "date_joined")}),
+    )
+    add_fieldsets = (
+        (
+            None,
+            {
+                "classes": ("wide",),
+                "fields": ("username", "email", "handle", "password1", "password2"),
+            },
+        ),
+    )
+    list_display = ("username", "handle", "email", "is_staff")
+    search_fields = ("username", "handle", "email")
+    ordering = ("username",)
+
+
+@admin.register(SubscriberProfile)
+class SubscriberProfileAdmin(admin.ModelAdmin):
+    list_display = (
+        "user_handle",
+        "channel_title",
+        "handle",
+        "category",
+        "channel_subscriber_count",
+        "facebook_followers_count",
+        "score",
+        "reserved_score",
+        "video_score",
+        "video_score_reserved",
+        "active_status_for_video",
+        "active_status_for_youtube",
+        "last_scan_at",
+        "last_scan_status",
+    )
+    fieldsets = (
+        ("Basic Info", {
+            "fields": ("user", "channel_title", "handle", "category", "google_email", "facebook_profile_url")
+        }),
+        ("Channel Stats", {
+            "fields": ("channel_subscriber_count", "channel_video_count", "channel_total_view_count", "facebook_followers_count")
+        }),
+        ("Scores", {
+            "fields": ("score", "reserved_score", "video_score", "video_score_reserved")
+        }),
+        ("Status", {
+            "fields": (
+                "last_scan_at",
+                "last_scan_status",
+                "target_subscription_verified",
+                "active_status",
+                "active_status_for_video",
+                "active_status_for_youtube",
+                "last_verified_sync_at",
+                "last_tasks_entry_at",
+            )
+        }),
+    )
+    search_fields = ("user__email", "channel_title", "handle", "google_email", "facebook_profile_url")
+    list_filter = ("last_scan_status", "target_subscription_verified", "category")
+    readonly_fields = ("last_scan_at", "updated_at")
+    actions = ["delete_selected_users_and_profiles"]
+
+    @admin.display(description="User")
+    def user_handle(self, obj):
+        return obj.handle or obj.user.username
+
+    @admin.action(description="Delete selected profiles and their associated User accounts")
+    def delete_selected_users_and_profiles(self, request, queryset):
+        user_count = 0
+        for profile in queryset:
+            if profile.user:
+                profile.user.delete()
+                user_count += 1
+
+        self.message_user(
+            request,
+            f"Successfully deleted {user_count} user accounts and their associated profiles.",
+            messages.SUCCESS,
+        )
+
+
+@admin.register(TopUserSubscribeTask)
+class TopUserSubscribeTaskAdmin(admin.ModelAdmin):
+    list_display = (
+        "profile_handle",
+        "target_profile_handle",
+        "verified_status",
+        "subscribed_at",
+        "facebook_followed_status",
+        "facebook_followed_at",
+        "last_attempt_at",
+        "updated_at",
+    )
+    list_filter = ("verified_status", "facebook_followed_status", "subscribed_at", "updated_at")
+    search_fields = (
+        "profile__user__username",
+        "profile__user__email",
+        "target_profile__user__username",
+        "target_profile__user__email",
+    )
+    readonly_fields = ("created_at", "updated_at", "last_attempt_at")
+
+    @admin.display(description="Profile")
+    def profile_handle(self, obj):
+        return obj.profile.handle or obj.profile.user.username
+
+    @admin.display(description="Target")
+    def target_profile_handle(self, obj):
+        return obj.target_profile.handle or obj.target_profile.user.username
+
+
+@admin.register(FacebookProfile)
+class FacebookProfileAdmin(admin.ModelAdmin):
+    list_display = (
+        "user_handle",
+        "name",
+        "facebook_email",
+        "page_name",
+        "page_followers_count",
+        "facebook_subject_id",
+        "connected_at",
+        "updated_at",
+    )
+    search_fields = ("user__username", "user__email", "name", "facebook_email", "facebook_subject_id", "page_name", "page_id")
+    readonly_fields = ("connected_at", "updated_at")
+
+    @admin.display(description="User")
+    def user_handle(self, obj):
+        return obj.user.handle or obj.user.username
+
+
+@admin.register(FacebookTaskAssing)
+class FacebookTaskAssingAdmin(admin.ModelAdmin):
+    list_display = (
+        "profile_handle",
+        "target_facebook_name",
+        "followed_status",
+        "followed_at",
+        "last_attempt_at",
+        "updated_at",
+    )
+    list_filter = ("followed_status", "updated_at")
+    search_fields = (
+        "profile__user__username",
+        "profile__user__email",
+        "target_facebook_profile__name",
+        "target_facebook_profile__facebook_email",
+        "target_facebook_profile__facebook_subject_id",
+    )
+    readonly_fields = ("created_at", "updated_at", "last_attempt_at")
+
+    @admin.display(description="Profile")
+    def profile_handle(self, obj):
+        return obj.profile.handle or obj.profile.user.username
+
+    @admin.display(description="Target Facebook")
+    def target_facebook_name(self, obj):
+        return obj.target_facebook_profile.name or obj.target_facebook_profile.user.username
+
+
+@admin.register(Video)
+class VideoAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "owner_user",
+        "video_url",
+        "duration_seconds",
+        "watched_time_seconds",
+        "status",
+        "created_at",
+    )
+    search_fields = (
+        "video_url",
+        "owner_user__username",
+        "owner_user__email",
+    )
+    list_filter = ("status", "created_at", "updated_at")
+    readonly_fields = ("created_at", "updated_at")
+    list_select_related = ("owner_user",)

@@ -1,0 +1,196 @@
+{% extends 'base.html' %}
+
+{% block title %}Login - NewYoutubers{% endblock %}
+
+{% block extra_css %}
+        .login-container {
+            max-width: 860px;
+            margin: 3rem auto;
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .login-container h1 {
+            text-align: center;
+            color: #FF0000;
+            margin-bottom: 0.6rem;
+            font-size: 1.8rem;
+        }
+
+        .login-container p {
+            text-align: center;
+            color: #666;
+            margin-bottom: 1.4rem;
+        }
+
+        .platform-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .platform-card {
+            border: 1px solid #f1d1d1;
+            border-radius: 8px;
+            padding: 1rem;
+            background: #fff9f9;
+            display: grid;
+            gap: 0.85rem;
+            align-content: start;
+        }
+
+        .platform-card.youtube {
+            border-color: #ffd0d0;
+            background: #fff5f5;
+        }
+
+        .platform-card.facebook {
+            border-color: #cfe0ff;
+            background: #f3f8ff;
+        }
+
+        .platform-card h2 {
+            margin: 0;
+            font-size: 1.1rem;
+            color: #9f0f0f;
+        }
+
+        .platform-card p {
+            margin: 0;
+            text-align: left;
+            color: #555;
+            font-size: 0.92rem;
+            line-height: 1.45;
+        }
+
+        .oauth-button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            width: 100%;
+            padding: 0.85rem 1rem;
+            background: white;
+            border: 2px solid #FF0000;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #333;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .oauth-button:hover {
+            background: #FFE0E0;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(255,0,0,0.2);
+        }
+
+        .oauth-button.facebook-btn {
+            border-color: #1877f2;
+            color: #124ba3;
+        }
+
+        .oauth-button.facebook-btn:hover {
+            background: #eaf2ff;
+            box-shadow: 0 4px 8px rgba(24,119,242,0.2);
+        }
+
+        .oauth-button.disabled {
+            background: #eee;
+            color: #999;
+            border-color: #ccc;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .signup-link {
+            text-align: center;
+            margin-top: 1rem;
+            color: #666;
+        }
+
+        .signup-link a {
+            color: #FF0000;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .signup-link a:hover {
+            text-decoration: underline;
+        }
+
+        .error-message {
+            background: #FFE0E0;
+            color: #C41E3A;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            border-left: 4px solid #FF0000;
+        }
+
+        .info-box {
+            background: #f0f0f0;
+            border-left: 4px solid #FF0000;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+            color: #555;
+        }
+
+        @media (max-width: 760px) {
+            .platform-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .login-container {
+                margin: 1.5rem auto;
+                padding: 1.1rem;
+            }
+        }
+{% endblock %}
+
+{% block content %}
+    <div class="login-container">
+        <h1>Welcome Back</h1>
+        <p>Choose your growth path and sign in with the right platform.</p>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="error-message">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+
+        <div class="platform-grid">
+            <section class="platform-card youtube">
+                <h2>Grow YouTube</h2>
+                <p>If you want to grow your YouTube channel, login with Google.</p>
+                {% if oauth_ready %}
+                    <a href="{% url 'subscribers:google_connect' %}" class="oauth-button">
+                        <span>G</span>
+                        <span>Continue with Google</span>
+                    </a>
+                {% else %}
+                    <div class="oauth-button disabled">
+                        <span>!</span>
+                        <span>Google OAuth Not Configured</span>
+                    </div>
+                {% endif %}
+            </section>
+
+        </div>
+
+        <div class="info-box">
+            Facebook login is hidden for now while Page permissions are prepared.
+        </div>
+
+        <div class="signup-link">
+            Don't have an account? <a href="{% url 'subscribers:signup' %}">Sign up here</a>
+        </div>
+    </div>
+{% endblock %}

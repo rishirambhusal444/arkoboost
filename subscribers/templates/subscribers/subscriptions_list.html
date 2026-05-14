@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}My Subscriptions{% endblock %}
+
+{% block extra_css %}
+    .subscriptions-grid {
+        display: grid;
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+
+    .subscription-card {
+        border: 1px solid #e9e9e9;
+        border-radius: 10px;
+        background: #fff;
+        overflow: hidden;
+        box-shadow: 0 1px 6px rgba(0, 0, 0, 0.06);
+    }
+
+    .subscription-body {
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.75rem;
+        text-align: center;
+    }
+
+    .subscription-thumb {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        object-fit: cover;
+        flex-shrink: 0;
+        border: 1px solid #efefef;
+    }
+
+    .subscription-title {
+        margin: 0;
+        font-size: 0.95rem;
+        line-height: 1.3;
+        word-break: break-word;
+    }
+
+    .subscription-date {
+        display: block;
+        margin-top: 0.3rem;
+        color: #666;
+        font-size: 0.82rem;
+    }
+
+    .subscription-footer {
+        padding: 0 1rem 1rem 1rem;
+        text-align: center;
+    }
+
+    @media (max-width: 1600px) {
+        .subscriptions-grid {
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 1200px) {
+        .subscriptions-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 900px) {
+        .subscriptions-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 640px) {
+        .subscriptions-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Channels You're Subscribed To</h1>
+
+    {% if subscriptions %}
+        <div class="subscriptions-grid">
+            {% for subscription in subscriptions %}
+                <article class="subscription-card">
+                    <div class="subscription-body">
+                        {% if subscription.thumbnail %}
+                            <img src="{{ subscription.thumbnail }}" class="subscription-thumb" alt="{{ subscription.title }}">
+                        {% endif %}
+                        <div>
+                            <h2 class="subscription-title">{{ subscription.title }}</h2>
+                            {% if subscription.subscribed_at %}
+                                <span class="subscription-date">Subscribed: {{ subscription.subscribed_at|date:"M d, Y" }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if subscription.channel_id %}
+                        <div class="subscription-footer">
+                            <a href="https://www.youtube.com/channel/{{ subscription.channel_id }}" target="_blank" class="btn btn-sm btn-outline-primary">View Channel</a>
+                        </div>
+                    {% endif %}
+                </article>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p>You are not subscribed to any public channels, or we couldn't fetch your subscriptions.</p>
+        <p>Please ensure your Google account is connected and try scanning again.</p>
+    {% endif %}
+</div>
+{% endblock %}

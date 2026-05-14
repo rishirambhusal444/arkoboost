@@ -1,0 +1,15 @@
+{% extends "admin/index.html" %}
+
+{% block content %}
+  <div style="margin-bottom:16px; padding:14px; border:1px solid #ddd; border-radius:8px; background:#fff;">
+    <h2 style="margin:0 0 10px 0;">Subscribers Quick Actions</h2>
+    <div style="display:flex; flex-wrap:wrap; gap:8px;">
+      <a class="button" href="{% url 'admin:subscribers_subscriberprofile_changelist' %}">Profiles</a>
+      <a class="button" href="{% url 'admin:subscribers_topusersubscribetask_changelist' %}">Top User Tasks</a>
+      <a class="button" href="{% url 'admin:subscribers_subscriberprofile_add' %}">+ Add Profile</a>
+      <a class="button" href="{% url 'admin:subscribers_topusersubscribetask_add' %}">+ Add Top User Task</a>
+    </div>
+  </div>
+
+  {{ block.super }}
+{% endblock %}

@@ -1,0 +1,270 @@
+{% extends 'base.html' %}
+
+{% block title %}Watch Task Entry{% endblock %}
+
+{% block content %}
+<style>
+    .watch-entry-shell {
+        --watch-blue: #0d6efd;
+        --watch-blue-dark: #0a4fb4;
+        --watch-ink: #1f2430;
+    }
+    .watch-hero {
+        background: linear-gradient(130deg, #1f6fff 0%, #0f4db3 70%);
+        color: #fff;
+        border-radius: 14px;
+        padding: 1.5rem;
+        box-shadow: 0 10px 22px rgba(17, 88, 201, 0.25);
+        margin-bottom: 1rem;
+    }
+    .watch-hero-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    .watch-hero h2 { margin: 0 0 0.45rem; font-weight: 800; }
+    .watch-hero p { margin: 0 0 0.9rem; opacity: 0.95; }
+    .watch-cta {
+        width: 100%;
+        text-align: center;
+        background: #ffffff;
+        color: #0a4fb4;
+        border: 2px solid #ffffff;
+        border-radius: 10px;
+        font-weight: 800;
+        padding: 0.7rem 1rem;
+        box-shadow: 0 8px 18px rgba(0,0,0,0.15);
+        transition: all 0.2s ease;
+        text-decoration: none;
+        display: inline-block;
+    }
+    .watch-cta:hover { background:#eef5ff; color:#083b86; transform: translateY(-2px); }
+    .metrics-one-row {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.9rem;
+        margin-bottom: 1rem;
+    }
+    @media (max-width: 992px) { .metrics-one-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 576px) { .metrics-one-row { grid-template-columns: 1fr; } }
+    .metric-card {
+        border: 1px solid #dbe7ff;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        background: linear-gradient(180deg, #ffffff 0%, #f4f8ff 100%);
+        min-height: 210px;
+        padding: 1.25rem;
+    }
+    .metric-chip {
+        display: inline-block;
+        margin-bottom: 0.45rem;
+        border: 1px solid #cadcff;
+        color: #104ea8;
+        background: #edf4ff;
+        border-radius: 999px;
+        padding: 0.12rem 0.55rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+    .metric-label {
+        font-size: 0.86rem;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        color: #6f7b93;
+        margin-bottom: 0.45rem;
+        font-weight: 700;
+    }
+    .metric-value {
+        font-size: 2rem;
+        font-weight: 800;
+        color: var(--watch-ink);
+        line-height: 1.1;
+    }
+    .metric-hint {
+        color: #7e8aa2;
+        font-size: 0.92rem;
+        margin-top: 0.35rem;
+    }
+    .panel-card {
+        border: 1px solid #dfe8f8;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        background: #fff;
+        overflow: hidden;
+    }
+    .panel-head {
+        border-bottom: 1px solid #edf2fb;
+        padding: 0.9rem 1rem;
+        font-weight: 700;
+        color: #202637;
+    }
+    .video-mini-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 0.75rem;
+        padding: 1rem;
+    }
+    .video-mini-card {
+        border: 1px solid #e2eaf8;
+        border-radius: 10px;
+        padding: 0.65rem;
+        background: #f9fbff;
+        position: relative;
+    }
+    .quick-add-grid {
+        display: grid;
+        gap: 0.6rem;
+    }
+    .quick-add-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 140px;
+        gap: 0.55rem;
+    }
+    @media (max-width: 640px) {
+        .quick-add-row {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+<div class="container py-4 watch-entry-shell">
+    <section class="watch-hero">
+        <div class="watch-hero-top">
+            <div>
+                <h2>Watch Hour Task Entry</h2>
+                <p>Preview watch queue metrics and then enter your watch task page.</p>
+            </div>
+            <a href="{% url 'subscribers:watch_video_root' %}" class="btn btn-outline-light" style="font-weight:700;">Refresh Queue</a>
+        </div>
+        <a href="{% url 'subscribers:watch_video_root' %}" class="watch-cta">Enter Watch Hour Page</a>
+    </section>
+
+    <section class="metrics-one-row">
+        <div class="metric-card">
+            <div class="metric-chip">Queue</div>
+            <div class="metric-label">Watch Pool Videos</div>
+            <div class="metric-value">{{ watch_pool_count }}</div>
+            <div class="metric-hint">Available videos to watch</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-chip">Minutes</div>
+            <div class="metric-label">Total Watch Minutes</div>
+            <div class="metric-value">{{ total_watch_minutes }}</div>
+            <div class="metric-hint">Aggregate watched time</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-chip">Status</div>
+            <div class="metric-label">Completed Videos</div>
+            <div class="metric-value">{{ completed_videos }}</div>
+            <div class="metric-hint">Marked complete in queue</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-chip">Score</div>
+            <div class="metric-label">Video Score</div>
+            <div class="metric-value">{{ video_score }}</div>
+            <div class="metric-hint">Reserved: {{ video_score_reserved }}</div>
+        </div>
+    </section>
+
+    <section class="panel-card mb-3">
+        <div class="panel-head">Watch Queue Graph</div>
+        <div class="p-3">
+            <canvas id="watchSingleGraph" height="110"></canvas>
+        </div>
+    </section>
+
+    <section class="panel-card mb-3">
+        <div class="panel-head">Manage My Video Links</div>
+        <div class="p-3">
+            {% with my_count=my_videos|length %}
+            {% if my_count >= 3 %}
+                <div class="alert alert-warning py-2 mb-3">
+                    You already have 3 video links. Update them in Link 1, Link 2, Link 3 rows.
+                </div>
+            {% endif %}
+            <div class="quick-add-grid mb-3">
+                {% with v1=my_videos.0 v2=my_videos.1 v3=my_videos.2 %}
+                <form method="post" action="{% url 'subscribers:save_watch_video_link' %}" class="quick-add-row">
+                    {% csrf_token %}
+                    {% if v1 %}<input type="hidden" name="video_pk" value="{{ v1.id }}">{% endif %}
+                    <input name="video_url" class="form-control" placeholder="Video Link 1: Paste YouTube URL (watch/shorts/embed)" value="{% if v1 %}{{ v1.video_url }}{% endif %}" required {% if my_count >= 3 and not v1 %}disabled{% endif %}>
+                    <button type="submit" class="btn btn-primary" {% if my_count >= 3 and not v1 %}disabled{% endif %}>{% if v1 %}Edit Link 1{% else %}Add Link 1{% endif %}</button>
+                </form>
+                <form method="post" action="{% url 'subscribers:save_watch_video_link' %}" class="quick-add-row">
+                    {% csrf_token %}
+                    {% if v2 %}<input type="hidden" name="video_pk" value="{{ v2.id }}">{% endif %}
+                    <input name="video_url" class="form-control" placeholder="Video Link 2: Paste YouTube URL (watch/shorts/embed)" value="{% if v2 %}{{ v2.video_url }}{% endif %}" required {% if my_count >= 3 and not v2 %}disabled{% endif %}>
+                    <button type="submit" class="btn btn-primary" {% if my_count >= 3 and not v2 %}disabled{% endif %}>{% if v2 %}Edit Link 2{% else %}Add Link 2{% endif %}</button>
+                </form>
+                <form method="post" action="{% url 'subscribers:save_watch_video_link' %}" class="quick-add-row">
+                    {% csrf_token %}
+                    {% if v3 %}<input type="hidden" name="video_pk" value="{{ v3.id }}">{% endif %}
+                    <input name="video_url" class="form-control" placeholder="Video Link 3: Paste YouTube URL (watch/shorts/embed)" value="{% if v3 %}{{ v3.video_url }}{% endif %}" required {% if my_count >= 3 and not v3 %}disabled{% endif %}>
+                    <button type="submit" class="btn btn-primary" {% if my_count >= 3 and not v3 %}disabled{% endif %}>{% if v3 %}Edit Link 3{% else %}Add Link 3{% endif %}</button>
+                </form>
+                {% endwith %}
+            </div>
+            {% endwith %}
+
+        </div>
+    </section>
+
+    <section class="panel-card">
+        <div class="panel-head">Recent Watch Queue Videos</div>
+        {% if watch_videos %}
+            <div class="video-mini-grid">
+                {% for card in watch_video_cards %}
+                    {% with v=card.video %}
+                    <article class="video-mini-card">
+                        <div style="font-weight:700; color:#1f2430;">{{ v.video_url|truncatechars:38 }}</div>
+                        <div style="font-size:0.84rem; color:#6f7b93;">Duration: {{ v.duration_seconds }} sec</div>
+                        <div style="font-size:0.84rem; color:#6f7b93;">Watched: {{ v.watched_time_seconds }} sec</div>
+                        <div style="font-size:0.84rem; color:#6f7b93;">Status: {{ v.status }}</div>
+                        <div style="font-size:0.84rem; color:#0a4fb4;">
+                            My Task: {{ card.my_task_label }}
+                        </div>
+                    </article>
+                    {% endwith %}
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="p-3 text-muted">No watch queue videos found yet.</div>
+        {% endif %}
+    </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const watchCtx = document.getElementById("watchSingleGraph");
+    if (watchCtx) {
+        new Chart(watchCtx, {
+            type: "bar",
+            data: {
+                labels: ["Pool", "Watch Min", "Completed", "Active", "Score", "Reserved"],
+                datasets: [{
+                    label: "Watch Metrics",
+                    data: [
+                        {{ watch_pool_count|default:0 }},
+                        {{ total_watch_minutes|default:0 }},
+                        {{ completed_videos|default:0 }},
+                        {{ active_videos|default:0 }},
+                        {{ video_score|default:0 }},
+                        {{ video_score_reserved|default:0 }}
+                    ],
+                    backgroundColor: ["#8db6ff", "#6aa3ff", "#4f8ef9", "#2e73e6", "#155fca", "#0a4fb4"],
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,222 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ page_title }} - NewYoutubers{% endblock %}
+
+{% block extra_css %}
+        .page-header {
+            background: linear-gradient(135deg, #ff0000 0%, #ff4d4d 100%);
+            color: white;
+            padding: 2.5rem 2rem;
+            border-radius: 12px;
+            margin-bottom: 2rem;
+        }
+
+        .page-header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .page-header p {
+            opacity: 0.95;
+            max-width: 720px;
+            line-height: 1.5;
+        }
+
+        .page-tabs,
+        .page-actions {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .page-tabs {
+            margin-top: 1rem;
+        }
+
+        .page-actions {
+            margin-top: 1.25rem;
+        }
+
+        .tab-link {
+            display: inline-block;
+            padding: 0.7rem 1rem;
+            border-radius: 999px;
+            text-decoration: none;
+            font-weight: 600;
+            border: 1px solid rgba(255, 255, 255, 0.45);
+            color: white;
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .tab-link.active {
+            background: white;
+            color: #d60000;
+            border-color: white;
+        }
+
+        .info-card,
+        .empty-state,
+        .warning-card,
+        .subscriber-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        }
+
+        .info-card,
+        .empty-state,
+        .warning-card {
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .info-card p,
+        .empty-state p,
+        .warning-card p {
+            color: #555;
+            line-height: 1.6;
+        }
+
+        .warning-card {
+            border-left: 5px solid #ff9800;
+            background: #fff8ec;
+        }
+
+        .subscriber-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1.25rem;
+        }
+
+        .subscriber-card {
+            padding: 1.25rem;
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+        }
+
+        .subscriber-avatar {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: #f1f1f1;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+
+        .subscriber-content h3 {
+            margin-bottom: 0.35rem;
+            color: #222;
+        }
+
+        .subscriber-meta {
+            font-size: 0.92rem;
+            color: #777;
+            margin-bottom: 0.75rem;
+            word-break: break-word;
+        }
+
+        .subscriber-description {
+            color: #444;
+            line-height: 1.5;
+            font-size: 0.95rem;
+        }
+
+        .subscriber-description.empty {
+            color: #888;
+            font-style: italic;
+        }
+{% endblock %}
+
+{% block content %}
+    <div class="container">
+        <section class="page-header">
+            <h1>{{ page_title }}</h1>
+            <p>{{ page_description }}</p>
+            <div class="page-tabs">
+                <a
+                    href="{% url 'subscribers:list_subscribers' %}"
+                    class="tab-link {% if page_mode == 'subscribers' %}active{% endif %}"
+                >
+                    Who Subscribed To Me
+                </a>
+                <a
+                    href="{% url 'subscribers:list_subscriptions' %}"
+                    class="tab-link {% if page_mode == 'subscriptions' %}active{% endif %}"
+                >
+                    Channels I Subscribed To
+                </a>
+            </div>
+            <div class="page-actions">
+                <a href="{% url 'subscribers:home' %}" class="btn btn-secondary">Back to Home</a>
+                <a href="{% url 'subscribers:google_connect' %}" class="btn btn-primary">Refresh Google Connection</a>
+            </div>
+        </section>
+
+        <section class="info-card">
+            <p><strong>Connected account:</strong> {{ profile.google_email|default:user.email|default:"Not connected" }}</p>
+            {% if channel.channel_title %}
+            <p><strong>YouTube channel:</strong> {{ channel.channel_title }}</p>
+            {% endif %}
+            {% if channel.subscriber_count or channel.subscriber_count == 0 %}
+            <p><strong>Total subscribers on channel:</strong> {{ channel.subscriber_count }}</p>
+            {% endif %}
+            <p><strong>{{ count_label }}:</strong> {{ items|length }}</p>
+        </section>
+
+        {% if unavailable_reason %}
+            <section class="warning-card">
+                <h2>Subscriber list unavailable</h2>
+                <p>{{ unavailable_reason }}</p>
+                {% if activation_url %}
+                <p>
+                    <a href="{{ activation_url }}" target="_blank" rel="noopener noreferrer">Enable YouTube Data API v3</a>
+                </p>
+                {% endif %}
+                {% if raw_error %}
+                <p><strong>Google response:</strong> {{ raw_error }}</p>
+                {% endif %}
+                <p>
+                    We can still read the channel itself, but YouTube is not returning the requested data through the API.
+                </p>
+            </section>
+        {% elif items %}
+            <section class="subscriber-grid">
+                {% for item in items %}
+                    <article class="subscriber-card">
+                        {% if item.thumbnail %}
+                            <img
+                                src="{{ item.thumbnail }}"
+                                alt="{{ item.title }}"
+                                class="subscriber-avatar"
+                            >
+                        {% else %}
+                            <div class="subscriber-avatar"></div>
+                        {% endif %}
+
+                        <div class="subscriber-content">
+                            <h3>{{ item.title }}</h3>
+                            <p class="subscriber-meta">Channel ID: {{ item.channel_id|default:"Unavailable" }}</p>
+                            <p class="subscriber-description {% if page_mode == 'subscriptions' and not item.subscribed_at %}{% elif page_mode != 'subscriptions' and not item.description %}empty{% endif %}">
+                                {% if page_mode == 'subscriptions' %}
+                                    {% if item.subscribed_at %}
+                                        Subscribed at: {{ item.subscribed_at }}
+                                    {% else %}
+                                        No subscription date available.
+                                    {% endif %}
+                                {% else %}
+                                    {{ item.description|default:"No public description available." }}
+                                {% endif %}
+                            </p>
+                        </div>
+                    </article>
+                {% endfor %}
+            </section>
+        {% else %}
+            <section class="empty-state">
+                <h2>{{ empty_title }}</h2>
+                <p>{{ empty_message }}</p>
+            </section>
+        {% endif %}
+    </div>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}NewYoutubers - YouTube Growth Platform{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'subscribers/css/home.css' %}">
+{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1>Grow Faster With Focused YouTube Tasks</h1>
+    <div class="hero-actions">
+        {% if user.is_authenticated %}
+            <a href="{% url 'subscribers:enter_youtube_tasks' %}" class="btn btn-primary">Subscribe Tasks</a>
+            <a href="{% url 'subscribers:enter_watch_tasks' %}" class="btn btn-secondary">Watch Tasks</a>
+        {% else %}
+            <a href="{% url 'subscribers:login' %}" class="btn btn-primary">Login To Start</a>
+            <a href="{% url 'subscribers:login' %}" class="btn btn-secondary">Explore Tasks</a>
+        {% endif %}
+    </div>
+</section>
+
+<div class="page-wrap">
+    <section class="promo-card">
+        <iframe class="promo-frame"
+            src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+            title="NewYoutubers Promo"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen>
+        </iframe>
+
+        <div class="quick-actions">
+            <article class="quick-item">
+                <h3>Subscribe Flow</h3>
+                <p>Enter YouTube task page and complete assigned subscribe actions.</p>
+            </article>
+            <article class="quick-item">
+                <h3>Watch Flow</h3>
+                <p>Open watch tasks, complete watch requirements, and progress score safely.</p>
+            </article>
+     
+        </div>
+    </section>
+
+    <section class="info-card">
+        <h2 style="margin:0 0 0.8rem; color:#d10000;">How It Works</h2>
+        <div class="info-grid">
+            <div>
+                <strong>1. Connect Account</strong>
+                <p>Connect your YouTube account and keep your profile active.</p>
+            </div>
+            <div>
+                <strong>2. Complete Tasks</strong>
+                <p>Do subscribe and watch tasks from the dedicated pages.</p>
+            </div>
+            <div>
+                <strong>3. Get Verified</strong>
+                <p>Completed tasks are verified and reflected in score/activity.</p>
+            </div>
+            <div>
+                <strong>4. Smart Assignment</strong>
+                <p>Assignments are prioritized by user category first, then fallback pool.</p>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

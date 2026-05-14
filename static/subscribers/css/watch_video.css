@@ -1,0 +1,31 @@
+.video-task-container {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+}
+
+#player {
+    width: 100%;
+    height: 500px;
+}
+
+.video-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+
+.video-card {
+    background: #fff;
+    padding: 10px;
+    cursor: pointer;
+    border: 1px solid #ececec;
+    border-radius: 8px;
+}
+
+.video-card img {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 6px;
+}
