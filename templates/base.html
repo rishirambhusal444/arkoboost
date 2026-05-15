@@ -9,6 +9,7 @@
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+
         }
 
         body {
@@ -202,11 +203,9 @@
 </head>
 <body>
     <nav>
-        <a class="logo" href="{% url 'subscribers:home' %}">
-            <span class="logo-red">GROW</span>
-            <span class="logo-blue">UP</span>
-            <span class="logo-red">with</span>
-            <span class="logo-blue">US</span>
+<a>
+                <span class="logo-red">ARKO</span>
+            <span class="logo-blue">BOOST</span>
         </a>
         <ul>
             {% if user.is_authenticated %}
