@@ -30,11 +30,13 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-%lq&84y#tbhs&5
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
-    if host.strip()
+
+    ALLOWED_HOSTS = [
+    "arkoboost.onrender.com",
+    "localhost",
+    "127.0.0.1",
 ]
+
 
 csrf_origins_raw = os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "")
 CSRF_TRUSTED_ORIGINS = [
@@ -164,3 +166,9 @@ FACEBOOK_GRAPH_VERSION = os.environ.get('FACEBOOK_GRAPH_VERSION', 'v22.0')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'subscribers.User'
+
+ALLOWED_HOSTS = [
+    "arkoboost.onrender.com",
+    "localhost",
+    "127.0.0.1",
+]
