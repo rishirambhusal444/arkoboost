@@ -31,7 +31,8 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-%lq&84y#tbhs&5
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() == 'true'
 
 
-    ALLOWED_HOSTS = [
+
+ALLOWED_HOSTS = [
     "arkoboost.onrender.com",
     "localhost",
     "127.0.0.1",
