@@ -40,4 +40,4 @@ dist/
 # Coverage / Testing
 .coverage
 htmlcov/
-.pytest_cache/
+.pytest_cache/verification_images/
