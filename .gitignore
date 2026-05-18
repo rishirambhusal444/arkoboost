@@ -41,3 +41,4 @@ dist/
 .coverage
 htmlcov/
 .pytest_cache/verification_images/
+verification_images/
