@@ -511,7 +511,7 @@ class VideoWatchTask(models.Model):
         ]
 
 
-     def __str__(self):
+    def __str__(self):
         profile_name = self.profile.handle or self.profile.user.username
         return f"{profile_name} watched {self.video.video_url} for {self.watch_duration_seconds}s"
   
