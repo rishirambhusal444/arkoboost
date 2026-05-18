@@ -30,15 +30,10 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-%lq&84y#tbhs&5#18!smko5$0cdtwq8=*x@es^vg-p4_8dpv^h')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() == 'true'
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() == 'true'
 
 
 
-ALLOWED_HOSTS = [
-    "arkoboost.onrender.com",
-    "localhost",
-    "127.0.0.1",
-]
 
 
 csrf_origins_raw = os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "")
@@ -57,7 +52,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.humanize',
-    'subscribers',
+    'subscribers.apps.SubscribersConfig',
 ]
 
 MIDDLEWARE = [
