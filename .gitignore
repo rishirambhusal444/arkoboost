@@ -42,3 +42,4 @@ dist/
 htmlcov/
 .pytest_cache/verification_images/
 verification_images/
+verification_images/
