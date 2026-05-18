@@ -510,11 +510,11 @@ class VideoWatchTask(models.Model):
             )
         ]
 
-    def __str__(self):
-        state = "verified" if self.verified_status else "pending"
-        profile_name = self.profile.handle or self.profile.user.username
-        return f"{profile_name} -> {self.video.title} ({state})"
 
+     def __str__(self):
+        profile_name = self.profile.handle or self.profile.user.username
+        return f"{profile_name} watched {self.video.video_url} for {self.watch_duration_seconds}s"
+  
     @property
     def assigned_minutes(self):
         return self.assigned_video_score
