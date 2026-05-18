@@ -306,6 +306,7 @@
         .section-divider {
             scroll-margin-top: 1rem;
         }
+
 {% endblock %}
 
 {% block content %}
@@ -386,19 +387,42 @@
                                         <span class="handle-note">{{ task.target_profile.handle }}</span>
                                     {% endif %}
                                 </div>
-                                {% if task.verified_status %}
-                                    <span class="subscribed-chip">Verified</span>
+                                {% if is_google_connected %}
+                                    {% if task.verified_status %}
+                                        <span class="subscribed-chip">Verified</span>
+                                    {% else %}
+                                        <span class="missing-chip">Not Verified</span>
+                                    {% endif %}
                                 {% else %}
-                                    <span class="missing-chip">Not Verified</span>
+                                    <form method="post" action="{% url 'subscribers:manual_subscribe_task_assign' %}" target="_blank">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="target_profile_id" value="{{ task.target_profile.id }}">
+                                        {% if task.target_profile.id in manual_verified_target_ids %}
+                                            <button type="button" class="btn-subscribe" disabled>Verified</button>
+                                        {% elif task.target_profile.id in manual_unverified_target_ids %}
+                                            <button type="button" class="btn-subscribe" disabled>Unverified</button>
+                                        {% else %}
+                                            <button type="submit" class="btn-subscribe">Subscribe</button>
+                                        {% endif %}
+                                    </form>
                                 {% endif %}
                             </div>
 
-                            {% if not task.verified_status %}
+                            {% if is_google_connected and not task.verified_status %}
                                 <div class="task-actions">
                                     {% if task.target_profile.handle %}
                                         <a
                                             class="btn-open"
-                                            href="https://www.youtube.com/{{ task.target_profile.handle }}"
+                                            href="https://www.youtube.com/{{ task.target_profile.handle }}?sub_confirmation=1"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                        >
+                                            Open Channel
+                                        </a>
+                                    {% elif task.target_profile.channel_id %}
+                                        <a
+                                            class="btn-open"
+                                            href="https://www.youtube.com/channel/{{ task.target_profile.channel_id }}?sub_confirmation=1"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                         >
@@ -408,11 +432,7 @@
                                     <form method="post" action="{% url 'subscribers:subscribe_top_user_channel' %}">
                                         {% csrf_token %}
                                         <input type="hidden" name="target_profile_id" value="{{ task.target_profile.id }}">
-                                        <button
-                                            type="submit"
-                                            class="btn-subscribe"
-                                            {% if not is_google_connected %}disabled title="Connect Google first"{% endif %}
-                                        >
+                                        <button type="submit" class="btn-subscribe">
                                             Subscribe
                                         </button>
                                     </form>

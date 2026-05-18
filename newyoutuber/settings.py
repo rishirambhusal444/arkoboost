@@ -19,6 +19,8 @@ load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # Quick-start development settings - unsuitable for production
@@ -64,10 +66,12 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
-]
+    'django.contrib.auth.middleware.AuthenticationMiddleware', 
+    'django.contrib.messages.middleware.MessageMiddleware', 
+    'subscribers.middleware.CaptureDjangoMessagesMiddleware', 
+    'subscribers.middleware.TaskPresenceMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware', 
+] 
 
 ROOT_URLCONF = 'newyoutuber.urls'
 
@@ -164,6 +168,10 @@ FACEBOOK_REDIRECT_URI = os.environ.get(
 )
 FACEBOOK_GRAPH_VERSION = os.environ.get('FACEBOOK_GRAPH_VERSION', 'v22.0')
 
+# Task/rebalance runtime tuning
+REBALANCE_COOLDOWN_SECONDS = int(os.environ.get("REBALANCE_COOLDOWN_SECONDS", "30"))
+TASK_ACTIVITY_WINDOW_MINUTES = int(os.environ.get("TASK_ACTIVITY_WINDOW_MINUTES", "5"))
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
@@ -175,3 +183,34 @@ ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
 ]
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        },
+    },
+    "handlers": {
+        "app_file": {
+            "class": "logging.FileHandler",
+            "filename": str(LOG_DIR / "app.log"),
+            "formatter": "verbose",
+            "level": "INFO",
+        },
+    },
+    "loggers": {
+        "subscribers": {
+            "handlers": ["app_file"],
+            "level": "INFO",
+            "propagate": True,
+        },
+        "django": {
+            "handlers": ["app_file"],
+            "level": "WARNING",
+            "propagate": True,
+        },
+    },
+}

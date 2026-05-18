@@ -15,6 +15,7 @@ from .models import (
     SubscriberProfile,
     TopUserSubscribeTask,
     Video,
+    VideoProfile,
     VideoWatchTask,
     WatchEvent,
 )
@@ -641,14 +642,21 @@ def auto_assign_videos_if_needed(profile: SubscriberProfile, max_tasks: int = 3)
     return assigned_count
 
 
-def available_video_score(profile: SubscriberProfile) -> int:
+def _get_or_create_video_profile(user) -> VideoProfile:
+    video_profile, _ = VideoProfile.objects.get_or_create(user=user)
+    return video_profile
+
+
+def available_video_score(user) -> int:
     """Return the available video score minutes that can be assigned."""
-    profile.refresh_from_db(fields=['video_score', 'video_score_reserved'])
-    return max(int(profile.video_score or 0) - int(profile.video_score_reserved or 0), 0)
+    video_profile = _get_or_create_video_profile(user)
+    video_profile.refresh_from_db(fields=['video_score', 'video_score_reserved'])
+    return max(int(video_profile.video_score or 0) - int(video_profile.video_score_reserved or 0), 0)
 
 
 def assign_video_from_source_profile(
     source_profile: SubscriberProfile,
+    source_user,
     video: Video,
     target_profiles: list[SubscriberProfile],
     minutes_per_target: int,
@@ -660,15 +668,23 @@ def assign_video_from_source_profile(
         raise ValueError("minutes_per_target must be a positive integer")
 
     with transaction.atomic():
-        source_profile.refresh_from_db(fields=['video_score', 'video_score_reserved'])
-        available_minutes = max(int(source_profile.video_score or 0) - int(source_profile.video_score_reserved or 0), 0)
+        source_video_profile = _get_or_create_video_profile(source_user)
+        source_video_profile.refresh_from_db(fields=['video_score', 'video_score_reserved'])
+        available_minutes = max(int(source_video_profile.video_score or 0) - int(source_video_profile.video_score_reserved or 0), 0)
         if available_minutes <= 0:
             raise ValueError("Source profile has no available video score to assign")
 
         video_minutes = max(int(math.ceil((int(video.duration_seconds or 0)) / 60.0)), 1)
         reserve_per_target = max(video_minutes, minutes_per_target)
 
-        candidates = [p for p in list(target_profiles) if p.id != source_profile.id and p.active_status_for_video]
+        target_video_profile_by_user = {
+            vp.user_id: vp
+            for vp in VideoProfile.objects.filter(user_id__in=[p.user_id for p in target_profiles], active_status_for_video=True)
+        }
+        candidates = [
+            p for p in list(target_profiles)
+            if p.id != source_profile.id and p.user_id in target_video_profile_by_user
+        ]
         if max_targets is not None:
             candidates = candidates[:max_targets]
 
@@ -701,8 +717,8 @@ def assign_video_from_source_profile(
             remaining_minutes -= reserve_per_target
 
         if total_reserved > 0:
-            source_profile.video_score_reserved += total_reserved
-            source_profile.save(update_fields=['video_score_reserved', 'updated_at'])
+            source_video_profile.video_score_reserved += total_reserved
+            source_video_profile.save(update_fields=['video_score_reserved', 'updated_at'])
 
         return assigned_count
 
@@ -717,10 +733,11 @@ def _settle_source_assigned_score(watch_task: VideoWatchTask) -> None:
     if assigned_minutes <= 0:
         return
 
-    source_profile.refresh_from_db(fields=['video_score_reserved'])
-    if source_profile.video_score_reserved >= assigned_minutes:
-        source_profile.video_score_reserved -= assigned_minutes
-        source_profile.save(update_fields=['video_score_reserved', 'updated_at'])
+    source_video_profile = _get_or_create_video_profile(source_profile.user)
+    source_video_profile.refresh_from_db(fields=['video_score_reserved'])
+    if source_video_profile.video_score_reserved >= assigned_minutes:
+        source_video_profile.video_score_reserved -= assigned_minutes
+        source_video_profile.save(update_fields=['video_score_reserved', 'updated_at'])
 
 
 def _completion_threshold_seconds(watch_task: VideoWatchTask) -> int:
@@ -840,8 +857,9 @@ def _award_video_score(profile: SubscriberProfile, watch_task: VideoWatchTask) -
     watch_time_minutes = watch_task.watch_time_seconds // 60
     score_to_award = max(watch_time_minutes, 1)  # Minimum 1 point per completed task
     
-    profile.video_score_reserved += score_to_award
-    profile.save(update_fields=['video_score_reserved', 'updated_at'])
+    video_profile = _get_or_create_video_profile(profile.user)
+    video_profile.video_score_reserved += score_to_award
+    video_profile.save(update_fields=['video_score_reserved', 'updated_at'])
 
 
 def update_video_watch_time(watch_task: VideoWatchTask, watch_time_seconds: int) -> VideoWatchTask:
@@ -936,7 +954,7 @@ def get_video_watch_progress(watch_task: VideoWatchTask) -> dict:
     }
 
 
-def transfer_video_score_to_available(profile: SubscriberProfile, amount: int = None) -> int:
+def transfer_video_score_to_available(user, amount: int = None) -> int:
     """
     Transfer video_score_reserved to video_score (make it available for use).
     
@@ -948,19 +966,20 @@ def transfer_video_score_to_available(profile: SubscriberProfile, amount: int = 
         int: Amount transferred
     """
     with transaction.atomic():
-        profile.refresh_from_db(fields=['video_score', 'video_score_reserved'])
+        video_profile = _get_or_create_video_profile(user)
+        video_profile.refresh_from_db(fields=['video_score', 'video_score_reserved'])
         
-        transfer_amount = amount or profile.video_score_reserved
-        transfer_amount = min(transfer_amount, profile.video_score_reserved)
+        transfer_amount = amount or video_profile.video_score_reserved
+        transfer_amount = min(transfer_amount, video_profile.video_score_reserved)
         
-        profile.video_score += transfer_amount
-        profile.video_score_reserved -= transfer_amount
-        profile.save(update_fields=['video_score', 'video_score_reserved', 'updated_at'])
+        video_profile.video_score += transfer_amount
+        video_profile.video_score_reserved -= transfer_amount
+        video_profile.save(update_fields=['video_score', 'video_score_reserved', 'updated_at'])
         
         return transfer_amount
 
 
-def use_video_score(profile: SubscriberProfile, amount: int) -> bool:
+def use_video_score(user, amount: int) -> bool:
     """
     Use (deduct) available video score from a profile.
     
@@ -972,11 +991,12 @@ def use_video_score(profile: SubscriberProfile, amount: int) -> bool:
         bool: True if score was deducted successfully, False if insufficient score
     """
     with transaction.atomic():
-        profile.refresh_from_db(fields=['video_score'])
+        video_profile = _get_or_create_video_profile(user)
+        video_profile.refresh_from_db(fields=['video_score'])
         
-        if profile.video_score < amount:
+        if video_profile.video_score < amount:
             return False
         
-        profile.video_score -= amount
-        profile.save(update_fields=['video_score', 'updated_at'])
+        video_profile.video_score -= amount
+        video_profile.save(update_fields=['video_score', 'updated_at'])
         return True

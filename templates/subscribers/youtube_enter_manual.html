@@ -1,0 +1,421 @@
+{% extends 'base.html' %}
+
+{% block title %}Manual YouTube Task Entry{% endblock %}
+
+{% block content %}
+<style>
+    .yt-entry-shell {
+        --yt-red: #e60000;
+        --yt-red-dark: #b90000;
+    }
+    .yt-hero {
+        background: linear-gradient(130deg, #ff1f1f 0%, #d10000 70%);
+        color: #fff;
+        border-radius: 14px;
+        padding: 1.5rem;
+        box-shadow: 0 10px 22px rgba(209, 0, 0, 0.25);
+        margin-bottom: 1rem;
+    }
+    .yt-hero h2 { margin: 0 0 0.45rem; font-weight: 800; }
+    .yt-hero p { margin: 0 0 0.9rem; opacity: 0.95; }
+    .handle-box {
+        margin-top: 0.85rem;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        border-radius: 10px;
+        padding: 0.8rem;
+    }
+    .handle-card {
+        background: #fff;
+        border: 1px solid #ffd7d7;
+        border-radius: 12px;
+        padding: 1rem;
+        color: #1f2430;
+        box-shadow: 0 8px 18px rgba(0,0,0,0.1);
+    }
+    .handle-card h3 {
+        margin: 0 0 0.35rem;
+        color: #b90000;
+        font-size: 1.05rem;
+    }
+    .handle-card p {
+        margin: 0 0 0.7rem;
+        color: #4f566b;
+    }
+    .handle-row {
+        display: grid;
+        grid-template-columns: 8fr 4fr;
+        gap: 0.55rem;
+        align-items: start;
+    }
+    .handle-box input {
+        width: 100%;
+        border: 1px solid #ffd1d1;
+        border-radius: 8px;
+        padding: 0.5rem 0.7rem;
+    }
+    .handle-help {
+        margin-top: 0.45rem;
+        font-size: 0.82rem;
+        opacity: 0.95;
+    }
+    .handle-help.error {
+        color: #c20000;
+        font-weight: 800;
+    }
+    .handle-help.ok {
+        color: #0b5d1e;
+        font-weight: 700;
+    }
+    .card-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        margin-top: 0.75rem;
+    }
+    .btn-check {
+        display: inline-block;
+        background: #fff5f5;
+        color: #b90000;
+        border: 2px solid #ffc9c9;
+        border-radius: 8px;
+        font-weight: 700;
+        padding: 0.5rem 0.8rem;
+        text-decoration: none;
+    }
+    .btn-check.valid {
+        background: #eaf9ef;
+        color: #0f6b2a;
+        border-color: #91dfaa;
+    }
+    .btn-check.invalid {
+        background: #fff0f0;
+        color: #b80000;
+        border-color: #f0a6a6;
+    }
+    .verify-row {
+        display: inline-flex;
+        align-items: flex-start;
+        justify-content: flex-start;
+        gap: 0.35rem;
+        margin: 0;
+        padding: 0;
+        width: auto;
+        color: #fff;
+        font-weight: 600;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        float: none;
+        clear: none;
+    }
+    .action-row {
+        margin-top: 0.75rem;
+        display: flex;
+        justify-content: flex-start;
+        align-items: center;
+        text-align: left;
+        width: 100%;
+    }
+    .submit-row {
+        margin-top: 0.55rem;
+        display: flex;
+        justify-content: flex-end;
+    }
+    .submit-row .btn-enter-task {
+        width: auto !important;
+        max-width: none !important;
+        display: inline-block;
+        padding: 0.55rem 0.9rem;
+    }
+    .manual-video-card {
+        margin-top: 1rem;
+        background: #ffffff;
+        border: 1px solid #f3dede;
+        border-radius: 12px;
+        padding: 0.9rem;
+        color: #1f2430;
+    }
+    .manual-video-card h3 {
+        margin: 0 0 0.45rem;
+        color: #b90000;
+        font-size: 1rem;
+    }
+    .video-frame-wrap {
+        position: relative;
+        width: 100%;
+        padding-top: 56.25%;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #000;
+    }
+    .video-frame-wrap iframe {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+    }
+    .btn-enter-task {
+        width: 100%;
+        text-align: center;
+        background: #ffffff;
+        color: #b90000;
+        border: 2px solid #ffffff;
+        border-radius: 10px;
+        font-weight: 800;
+        padding: 0.7rem 1rem;
+        box-shadow: 0 8px 18px rgba(0,0,0,0.15);
+    }
+    .metrics-one-row {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.9rem;
+        margin-bottom: 1rem;
+    }
+    .metric-card {
+        border: 1px solid #f3dede;
+        border-radius: 12px;
+        background: linear-gradient(180deg, #ffffff 0%, #fff7f7 100%);
+        min-height: 160px;
+        padding: 1rem;
+    }
+    .metric-label { font-size: 0.86rem; color: #7a808f; font-weight: 700; }
+    .metric-value { font-size: 2rem; font-weight: 800; color: #1f2430; line-height: 1.1; }
+    @media (max-width: 992px) {
+        .metrics-one-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 768px) {
+        .yt-entry-shell {
+            padding-left: 0.6rem;
+            padding-right: 0.6rem;
+        }
+        .yt-hero {
+            padding: 1rem;
+            border-radius: 10px;
+        }
+        .handle-box,
+        .handle-card,
+        .manual-video-card,
+        .metric-card {
+            border-radius: 10px;
+        }
+        .handle-row { grid-template-columns: 1fr; }
+        .btn-check {
+            text-align: center;
+            width: 100%;
+        }
+        .action-row {
+            margin-top: 0.65rem;
+        }
+        .verify-row {
+            font-size: 0.92rem;
+            line-height: 1.35;
+        }
+        .submit-row { justify-content: flex-end; }
+        .metrics-one-row { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 576px) {
+        .metrics-one-row { grid-template-columns: 1fr; }
+    }
+</style>
+
+<div class="container py-4 yt-entry-shell">
+    <section class="yt-hero">
+        <h2>Manual Subscribe Task Entry</h2>
+        <p>You are in manual mode. Continue to the dedicated manual task page.</p>
+        {% if not has_handle %}
+            <form id="yt-manual-handle-form" method="post" action="{% url 'subscribers:update_youtube_handle' %}" class="handle-box" data-validate-url="{% url 'subscribers:validate_youtube_handle' %}">
+                {% csrf_token %}
+                <input type="hidden" name="next_url" value="{% url 'subscribers:youtube_tasks_manual' %}">
+                <div class="handle-card">
+                    <h3>Handle Check Card</h3>
+                    <p>Check whether your handle opens correctly on YouTube before continuing.</p>
+                    <div class="handle-row">
+                        <input id="youtube_handle" name="youtube_handle" type="text" placeholder="@yourhandle or youtube.com/@yourhandle" required>
+                        <a id="check-yt-link" class="btn-check" href="https://www.youtube.com/" target="_blank" rel="noopener noreferrer">Check In YouTube</a>
+                    </div>
+                    <p id="yt-handle-help" class="handle-help">Allowed: 3-40 characters (letters, numbers, '.', '-' and '_').</p>
+                </div>
+                <div class="action-row">
+                    <label class="verify-row" style="margin-top:0;">
+                        <input id="confirm-verified" type="checkbox">
+                        I checked and this handle is correct.
+                    </label>
+                </div>
+                <div class="submit-row">
+                    <button id="continue-manual-btn" type="submit" class="btn btn-enter-task" style="pointer-events:none;opacity:0.55;">Submit And Continue</button>
+                </div>
+            </form>
+        {% endif %}
+        <section class="manual-video-card">
+            <h3>Manual Task Video</h3>
+            <div class="video-frame-wrap">
+                <iframe
+                    src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+                    title="Manual Task Guide"
+                    loading="lazy"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    referrerpolicy="strict-origin-when-cross-origin"
+                    allowfullscreen
+                ></iframe>
+            </div>
+        </section>
+        {% if has_handle %}
+            <a href="{% url 'subscribers:youtube_tasks_manual' %}" class="btn btn-enter-task">Enter Manual Task Page</a>
+        {% endif %}
+    </section>
+
+    <section class="metrics-one-row">
+        <div class="metric-card">
+            <div class="metric-label">Total Subscribed</div>
+            <div class="metric-value">{{ total_subscribed }}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Channel Subscribers</div>
+            <div class="metric-value">{{ channel_subscriber_total }}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">New Subscribers</div>
+            <div class="metric-value">{{ new_subscribers }}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Video Score</div>
+            <div class="metric-value">{{ video_score }}</div>
+        </div>
+    </section>
+</div>
+<script>
+    (function () {
+        const input = document.getElementById("youtube_handle");
+        const help = document.getElementById("yt-handle-help");
+        const checkLink = document.getElementById("check-yt-link");
+        const confirmBox = document.getElementById("confirm-verified");
+        const continueBtn = document.getElementById("continue-manual-btn");
+        const form = document.getElementById("yt-manual-handle-form");
+        const validateUrl = form.dataset.validateUrl;
+        let isVerifiedOnYouTube = false;
+        let timer = null;
+        if (!input || !help || !checkLink || !confirmBox || !continueBtn || !form) return;
+
+        function normalizeHandle(raw) {
+            let value = (raw || "").trim().toLowerCase();
+            const marker = "youtube.com/";
+            const idx = value.indexOf(marker);
+            if (idx !== -1) value = value.slice(idx + marker.length);
+            value = value.replace(/^@+/, "").split("/")[0].split("?")[0].trim();
+            return value;
+        }
+
+        function validateHandle(raw) {
+            const normalized = normalizeHandle(raw);
+            const ok = /^[a-z0-9._-]{3,40}$/.test(normalized);
+            return { ok, normalized };
+        }
+
+        function updateState() {
+            const value = input.value;
+            if (!value.trim()) {
+                input.setCustomValidity("");
+                help.textContent = "Allowed: 3-40 characters (letters, numbers, '.', '-' and '_').";
+                help.classList.remove("error");
+                help.classList.remove("ok");
+                isVerifiedOnYouTube = false;
+                checkLink.href = "https://www.youtube.com/";
+                checkLink.classList.remove("valid", "invalid");
+                confirmBox.checked = false;
+                continueBtn.style.pointerEvents = "none";
+                continueBtn.style.opacity = "0.55";
+                return;
+            }
+            const result = validateHandle(value);
+            if (result.ok) {
+                input.setCustomValidity("");
+                help.textContent = "Checking handle on YouTube...";
+                help.classList.remove("error");
+                checkLink.href = "https://www.youtube.com/@" + result.normalized;
+                checkLink.classList.remove("valid", "invalid");
+                isVerifiedOnYouTube = false;
+                if (timer) window.clearTimeout(timer);
+                timer = window.setTimeout(function () {
+                    fetch(validateUrl + "?youtube_handle=" + encodeURIComponent(value), { credentials: "same-origin" })
+                        .then(function (resp) { return resp.json(); })
+                        .then(function (data) {
+                            if (input.value !== value) return;
+                            if (data && data.exists) {
+                                isVerifiedOnYouTube = true;
+                                help.textContent = "Verified on YouTube: " + data.normalized;
+                                help.classList.remove("error");
+                                help.classList.add("ok");
+                                checkLink.classList.add("valid");
+                                checkLink.classList.remove("invalid");
+                            } else if (data && data.ok) {
+                                isVerifiedOnYouTube = false;
+                                help.textContent = "Handle not found on YouTube.";
+                                help.classList.add("error");
+                                help.classList.remove("ok");
+                                checkLink.classList.add("invalid");
+                                checkLink.classList.remove("valid");
+                            } else {
+                                isVerifiedOnYouTube = false;
+                                help.textContent = "Invalid handle format.";
+                                help.classList.add("error");
+                                help.classList.remove("ok");
+                                checkLink.classList.add("invalid");
+                                checkLink.classList.remove("valid");
+                            }
+                            if (confirmBox.checked && result.ok && isVerifiedOnYouTube) {
+                                continueBtn.style.pointerEvents = "auto";
+                                continueBtn.style.opacity = "1";
+                            } else {
+                                continueBtn.style.pointerEvents = "none";
+                                continueBtn.style.opacity = "0.55";
+                            }
+                        })
+                        .catch(function () {
+                            if (input.value !== value) return;
+                            isVerifiedOnYouTube = false;
+                            help.textContent = "Could not verify right now. Try again.";
+                            help.classList.add("error");
+                            help.classList.remove("ok");
+                            checkLink.classList.add("invalid");
+                            checkLink.classList.remove("valid");
+                            continueBtn.style.pointerEvents = "none";
+                            continueBtn.style.opacity = "0.55";
+                        });
+                }, 450);
+            } else {
+                input.setCustomValidity("Please enter a valid YouTube handle.");
+                help.textContent = "Invalid handle. Use 3-40 letters/numbers with '.', '-' or '_' only.";
+                help.classList.add("error");
+                help.classList.remove("ok");
+                isVerifiedOnYouTube = false;
+                checkLink.href = "https://www.youtube.com/";
+                checkLink.classList.add("invalid");
+                checkLink.classList.remove("valid");
+                confirmBox.checked = false;
+                continueBtn.style.pointerEvents = "none";
+                continueBtn.style.opacity = "0.55";
+            }
+            if (confirmBox.checked && result.ok && isVerifiedOnYouTube) {
+                continueBtn.style.pointerEvents = "auto";
+                continueBtn.style.opacity = "1";
+            } else {
+                continueBtn.style.pointerEvents = "none";
+                continueBtn.style.opacity = "0.55";
+            }
+        }
+
+        input.addEventListener("input", updateState);
+        input.addEventListener("blur", updateState);
+        confirmBox.addEventListener("change", updateState);
+        form.addEventListener("submit", function (event) {
+            const result = validateHandle(input.value || "");
+            if (!(confirmBox.checked && result.ok && isVerifiedOnYouTube)) {
+                event.preventDefault();
+                updateState();
+                input.reportValidity();
+            }
+        });
+    })();
+</script>
+{% endblock %}

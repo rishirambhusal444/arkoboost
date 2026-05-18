@@ -7,6 +7,12 @@ from django.utils import timezone
 
 class User(AbstractBaseUser, PermissionsMixin):
     username_validator = UnicodeUsernameValidator()
+    ACCOUNT_MODE_MANUAL = "manual"
+    ACCOUNT_MODE_GOOGLE = "google"
+    ACCOUNT_MODE_CHOICES = [
+        (ACCOUNT_MODE_MANUAL, "Manual"),
+        (ACCOUNT_MODE_GOOGLE, "Google"),
+    ]
 
     username = models.CharField(
         max_length=150,
@@ -17,6 +23,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
     email = models.EmailField(blank=True)
     handle = models.CharField(max_length=255, unique=True, null=True, blank=True, db_index=True)
+    account_mode = models.CharField(
+        max_length=16,
+        choices=ACCOUNT_MODE_CHOICES,
+        default=ACCOUNT_MODE_MANUAL,
+        db_index=True,
+    )
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     date_joined = models.DateTimeField(default=timezone.now)
@@ -75,10 +87,10 @@ class SubscriberProfile(models.Model):
         (SCAN_FAILED, "Failed"),
     ]
 
-    user = models.OneToOneField(
+    user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="subscriber_profile",
+        related_name="subscriber_profiles",
     )
     google_subject_id = models.CharField(max_length=128, unique=True, blank=True, null=True)
     google_email = models.EmailField(blank=True)
@@ -128,9 +140,19 @@ class SubscriberProfile(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        db_table = "profile_table"
-        ordering = ["-updated_at"]
+    class Meta: 
+        db_table = "google_subscribe_profile" 
+        ordering = ["-updated_at"] 
+        indexes = [
+            models.Index(
+                fields=["active_status", "last_tasks_entry_at"],
+                name="subprof_active_last_idx",
+            ),
+            models.Index(
+                fields=["active_status", "score"],
+                name="subprof_active_score_idx",
+            ),
+        ]
 
     def __str__(self):
         return f'{self.handle or self.user.username} ({self.channel_title or "No channel"})'
@@ -219,13 +241,23 @@ class TopUserSubscribeTask(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        ordering = ["-updated_at", "-created_at"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["profile", "target_profile"],
-                name="unique_top_user_subscribe_task",
-            )
+    class Meta: 
+        ordering = ["-updated_at", "-created_at"] 
+        indexes = [
+            models.Index(
+                fields=["profile", "target_profile", "verified_status"],
+                name="top_task_pair_ver_idx",
+            ),
+            models.Index(
+                fields=["verified_status", "profile"],
+                name="top_task_state_owner_idx",
+            ),
+        ]
+        constraints = [ 
+            models.UniqueConstraint( 
+                fields=["profile", "target_profile"], 
+                name="unique_top_user_subscribe_task", 
+            ) 
         ]
 
     def __str__(self):
@@ -233,6 +265,158 @@ class TopUserSubscribeTask(models.Model):
         profile_name = self.profile.handle or self.profile.user.username
         target_name = self.target_profile.handle or self.target_profile.user.username
         return f"{profile_name} -> {target_name} ({state})"
+
+
+class ManualSubscribeProfile(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="manual_subscribe_profile_user",
+        null=True,
+        blank=True,
+    )
+    handle = models.CharField(max_length=255, blank=True, db_index=True)
+    category = models.CharField(
+        max_length=32,
+        choices=SubscriberProfile.CATEGORY_CHOICES,
+        default=SubscriberProfile.CATEGORY_OTHER,
+        db_index=True,
+    ) 
+    last_tasks_entry_at = models.DateTimeField(null=True, blank=True, db_index=True) 
+    sub_score = models.PositiveIntegerField(default=0) 
+    total_verified = models.PositiveIntegerField(default=0)
+    loyal_score = models.PositiveIntegerField(default=0) 
+    active_status_for_subscribe = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta: 
+        db_table = "manual_subscribe_profile" 
+        ordering = ["-updated_at"] 
+        indexes = [
+            models.Index(
+                fields=["active_status_for_subscribe", "last_tasks_entry_at"],
+                name="manprof_active_last_idx",
+            ),
+            models.Index(
+                fields=["active_status_for_subscribe", "sub_score"],
+                name="manprof_active_score_idx",
+            ),
+        ]
+
+    def __str__(self):
+        if self.handle:
+            return self.handle
+        if self.user:
+            return self.user.username
+        return "ManualSubscribeProfile"
+
+class ManualSubscribeTaskAssign(models.Model): 
+    STATUS_ASSIGNED = "assigned"
+    STATUS_UNVERIFIED = "unverified" 
+    STATUS_VERIFIED = "verified" 
+    STATUS_RELEASED = "released"
+    STATUS_CHOICES = [ 
+        (STATUS_ASSIGNED, "Assigned"),
+        (STATUS_UNVERIFIED, "Unverified"), 
+        (STATUS_VERIFIED, "Verified"), 
+        (STATUS_RELEASED, "Released"),
+    ] 
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="manual_subscribe_task_assignments",
+    )
+    manual_subscribe_profile = models.ForeignKey(
+        ManualSubscribeProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="task_assignments",
+    )
+    target_profile = models.ForeignKey(
+        SubscriberProfile,
+        on_delete=models.CASCADE,
+        related_name="manual_subscribe_task_targets",
+    )
+    subscribed_status = models.CharField( 
+        max_length=16, 
+        choices=STATUS_CHOICES, 
+        default=STATUS_ASSIGNED,
+        db_index=True, 
+    ) 
+    active_status = models.BooleanField(default=False, db_index=True)
+    clicked_subscribe_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta: 
+        db_table = "manual_subscribe_task_assign" 
+        ordering = ["-updated_at", "-created_at"] 
+        indexes = [
+            models.Index(
+                fields=["user", "target_profile", "subscribed_status"],
+                name="man_task_pair_state_idx",
+            ),
+            models.Index(
+                fields=["subscribed_status", "user"],
+                name="man_task_state_owner_idx",
+            ),
+        ]
+        constraints = [ 
+            models.UniqueConstraint( 
+                fields=["user", "target_profile"], 
+                name="unique_manual_subscribe_task_assign", 
+            ) 
+        ]
+
+    def __str__(self):
+        target = self.target_profile.handle or self.target_profile.user.username
+        return f"{self.user.username} -> {target} ({self.subscribed_status})"
+
+
+class VerificationImage(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="verification_images",
+    )
+    image = models.FileField(upload_to="verification_images/")
+    scanned_status = models.BooleanField(default=False, db_index=True)
+    scanned_at = models.DateTimeField(null=True, blank=True)
+    extracted_text = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "varificatio_image"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user.username} verification image {self.id}"
+
+
+class VideoProfile(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="video_profile",
+    )
+    video_score = models.PositiveIntegerField(default=0)
+    video_score_reserved = models.PositiveIntegerField(default=0)
+    active_status_for_video = models.BooleanField(default=False, db_index=True)
+    active_status_for_youtube = models.BooleanField(default=False, db_index=True)
+    last_video_entry_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "video_profile_table"
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return self.user.username
 
 
 class Video(models.Model):
@@ -382,3 +566,9 @@ class WatchEvent(models.Model):
     def __str__(self):
         profile_name = self.profile.handle or self.profile.user.username
         return f"{profile_name} watched {self.video.title} for {self.watch_duration_seconds}s"
+    ACCOUNT_MODE_MANUAL = "manual"
+    ACCOUNT_MODE_GOOGLE = "google"
+    ACCOUNT_MODE_CHOICES = [
+        (ACCOUNT_MODE_MANUAL, "Manual"),
+        (ACCOUNT_MODE_GOOGLE, "Google"),
+    ]

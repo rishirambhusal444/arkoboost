@@ -29,3 +29,27 @@
     object-fit: cover;
     border-radius: 6px;
 }
+
+@media (max-width: 992px) {
+    .video-task-container {
+        grid-template-columns: 1fr;
+    }
+
+    #player {
+        height: 420px;
+    }
+
+    .video-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    #player {
+        height: 260px;
+    }
+
+    .video-grid {
+        grid-template-columns: 1fr;
+    }
+}

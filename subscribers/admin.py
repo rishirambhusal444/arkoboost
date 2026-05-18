@@ -5,9 +5,12 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import (
     FacebookProfile,
     FacebookTaskAssing,
+    ManualSubscribeProfile,
+    ManualSubscribeTaskAssign,
     SubscriberProfile,
     TopUserSubscribeTask,
     User,
+    VerificationImage,
     Video,
 )
 
@@ -16,7 +19,7 @@ from .models import (
 class UserAdmin(BaseUserAdmin):
     fieldsets = (
         (None, {"fields": ("username", "password")}),
-        ("YouTube", {"fields": ("handle", "email")}),
+        ("YouTube", {"fields": ("handle", "email", "account_mode")}),
         ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
         ("Important dates", {"fields": ("last_login", "date_joined")}),
     )
@@ -25,12 +28,13 @@ class UserAdmin(BaseUserAdmin):
             None,
             {
                 "classes": ("wide",),
-                "fields": ("username", "email", "handle", "password1", "password2"),
+                "fields": ("username", "email", "handle", "account_mode", "password1", "password2"),
             },
         ),
     )
-    list_display = ("username", "handle", "email", "is_staff")
-    search_fields = ("username", "handle", "email")
+    list_display = ("username", "handle", "email", "account_mode", "is_staff")
+    search_fields = ("username", "handle", "email", "account_mode")
+    list_filter = ("account_mode", "is_staff", "is_active")
     ordering = ("username",)
 
 
@@ -197,3 +201,71 @@ class VideoAdmin(admin.ModelAdmin):
     list_filter = ("status", "created_at", "updated_at")
     readonly_fields = ("created_at", "updated_at")
     list_select_related = ("owner_user",)
+
+
+@admin.register(ManualSubscribeProfile)
+class ManualSubscribeProfileAdmin(admin.ModelAdmin):
+    list_display = ( 
+        "profile_handle", 
+        "handle", 
+        "sub_score", 
+        "total_verified",
+        "loyal_score", 
+        "active_status_for_subscribe", 
+        "updated_at", 
+    ) 
+    list_filter = ("active_status_for_subscribe", "updated_at")
+    search_fields = (
+        "handle",
+        "user__username",
+        "user__email",
+    )
+    readonly_fields = ("created_at", "updated_at")
+
+    @admin.display(description="Profile")
+    def profile_handle(self, obj):
+        return obj.handle or obj.user.username
+
+
+@admin.register(ManualSubscribeTaskAssign)
+class ManualSubscribeTaskAssignAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "manual_subscribe_profile",
+        "target_profile_handle",
+        "subscribed_status",
+        "active_status",
+        "clicked_subscribe_at",
+        "updated_at",
+    )
+    list_filter = ("subscribed_status", "active_status", "updated_at")
+    search_fields = (
+        "user__username",
+        "user__email",
+        "target_profile__user__username",
+        "target_profile__handle",
+    )
+    readonly_fields = ("created_at", "updated_at", "clicked_subscribe_at")
+    actions = ("mark_verified", "mark_unverified")
+
+    @admin.display(description="Target")
+    def target_profile_handle(self, obj):
+        return obj.target_profile.handle or obj.target_profile.user.username
+
+    @admin.action(description="Mark selected as verified")
+    def mark_verified(self, request, queryset):
+        updated = queryset.update(subscribed_status=ManualSubscribeTaskAssign.STATUS_VERIFIED)
+        self.message_user(request, f"{updated} row(s) marked as verified.", messages.SUCCESS)
+
+    @admin.action(description="Mark selected as unverified")
+    def mark_unverified(self, request, queryset):
+        updated = queryset.update(subscribed_status=ManualSubscribeTaskAssign.STATUS_UNVERIFIED)
+        self.message_user(request, f"{updated} row(s) marked as unverified.", messages.WARNING)
+
+
+@admin.register(VerificationImage)
+class VerificationImageAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "image", "scanned_status", "scanned_at", "created_at")
+    search_fields = ("user__username", "user__email", "image")
+    list_filter = ("scanned_status", "created_at")
+    readonly_fields = ("created_at", "updated_at")

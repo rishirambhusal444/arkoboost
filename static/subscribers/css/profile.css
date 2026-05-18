@@ -173,3 +173,23 @@
     color: #667085;
     font-size: 0.85rem;
 }
+
+@media (max-width: 768px) {
+    .profile-header,
+    .profile-card {
+        padding: 1rem;
+        border-radius: 8px;
+    }
+
+    .task-cta-buttons,
+    .summary-grid,
+    .insight-grid,
+    .metric-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .task-cta-btn {
+        width: 100%;
+        text-align: center;
+    }
+}

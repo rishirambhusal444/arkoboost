@@ -1,0 +1,337 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Manual YouTube Tasks - NewYoutubers{% endblock %}
+
+{% block extra_css %}
+        .tasks-shell {
+            --theme-primary: #d80c0c;
+            --theme-primary-dark: #b80000;
+            --theme-soft-bg: #fff9f9;
+            --theme-soft-border: #f0d7d7;
+        }
+
+        .tasks-header {
+            background: linear-gradient(135deg, #ff0000 0%, #ff4444 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+        
+        .manual-guide-video-wrap {
+            margin-top: 0;
+            display: block;
+        }
+        
+        .manual-video-card {
+            width: 100%;
+            background: #fff;
+            border: 1px solid #f0d7d7;
+            border-radius: 12px;
+            padding: 0.9rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+        }
+
+        .manual-video-card h3 {
+            margin: 0 0 0.45rem;
+            color: var(--theme-primary-dark);
+            font-size: 1rem;
+        }
+
+        .manual-video-card p {
+            margin: 0 0 0.7rem;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .manual-guide-video {
+            width: 80%;
+            max-width: 980px;
+            height: 400px;
+            border: 0;
+            border-radius: 10px;
+            background: #000;
+        }
+
+        @media (max-width: 760px) {
+            .manual-guide-video {
+                width: 100%;
+                height: 260px;
+            }
+            .tasks-header {
+                padding: 1.1rem;
+            }
+            .task-panel {
+                padding: 1rem;
+            }
+            .manual-upload-box {
+                min-width: 0;
+                width: 100%;
+                flex-wrap: wrap;
+            }
+            .manual-upload-trigger {
+                width: 100%;
+                justify-content: center;
+            }
+            .manual-verify-row .btn {
+                width: 100%;
+            }
+            .scan-alert-success {
+                position: static;
+                max-width: 100%;
+                margin-bottom: 0.7rem;
+            }
+        }
+
+        .task-panel { 
+            background: white; 
+            border-radius: 10px; 
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); 
+            padding: 1.5rem; 
+            margin-bottom: 1.5rem; 
+            position: relative;
+        } 
+
+        .manual-verify-row {
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+            flex-wrap: wrap;
+            margin: 0.8rem 0 1rem;
+        }
+
+        .manual-upload-box {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            border: 1px dashed #e59c9c;
+            border-radius: 10px;
+            background: #fff7f7;
+            padding: 0.55rem 0.75rem;
+            min-width: 280px;
+        }
+
+        .manual-upload-box input[type="file"] {
+            display: none;
+        }
+
+        .manual-upload-trigger {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.45rem 0.7rem;
+            border-radius: 8px;
+            border: 1px solid #e58989;
+            background: #fff;
+            color: #b80000;
+            font-weight: 700;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .manual-upload-icon {
+            font-size: 1rem;
+            line-height: 1;
+        }
+
+        .manual-upload-name {
+            font-size: 0.85rem;
+            color: #6a6666;
+            overflow-wrap: anywhere;
+        }
+
+        .task-matrix {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .task-cell {
+            border: 1px solid var(--theme-soft-border);
+            border-radius: 8px;
+            background: var(--theme-soft-bg);
+            padding: 0.75rem;
+            display: grid;
+            gap: 0.55rem;
+        }
+
+        .task-cell-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .handle-note {
+            display: block;
+            margin-top: 0.2rem;
+            color: #666;
+            font-size: 0.82rem;
+        }
+
+        .btn-subscribe {
+            background: var(--theme-primary);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 0.45rem 0.8rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .btn-subscribe:disabled {
+            background: #c9a4a4;
+            cursor: not-allowed;
+        }
+
+        .subscribe-note {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 0.3rem;
+        }
+
+        .manual-task-instruction { 
+            margin: 0 0 0.6rem 0; 
+            font-size: 1.6rem; 
+            font-weight: 800; 
+            color: var(--theme-primary-dark); 
+            line-height: 1.2; 
+        }
+
+        .verified-total-pill {
+            display: inline-block;
+            margin-top: 0.35rem;
+            padding: 0.55rem 0.95rem;
+            border-radius: 999px;
+            background: #dcfce7;
+            border: 1px solid #86efac;
+            color: #166534;
+            font-weight: 900;
+            font-size: 1rem;
+            letter-spacing: 0.01em;
+        }
+
+        .scan-alert-success {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            padding: 0.6rem 0.8rem;
+            border-radius: 8px;
+            border: 1px solid #86efac;
+            background: #ecfdf3;
+            color: #166534;
+            font-weight: 800;
+            max-width: min(420px, calc(100% - 2rem));
+            z-index: 2;
+        }
+
+{% endblock %} 
+
+{% block content %}
+    <div class="container tasks-shell">
+        <section class="tasks-header">
+            <h1>If you click mine, I will click yours.</h1>
+        </section>
+
+        <section class="task-panel"> 
+            {% if manual_last_scan_matched > 0 %}
+                <div class="scan-alert-success">
+                    This scan matched {{ manual_last_scan_matched }} subscription handle(s).
+                </div>
+            {% endif %}
+            <h2 class="manual-task-instruction">Upload screenshot, then run verify for assigned tasks.</h2>
+            {% if manual_verify_row_error %}
+                <div style="margin-top:0.55rem;color:#a01b1b;background:#ffeaea;border:1px solid #f3c2c2;border-radius:8px;padding:0.5rem 0.65rem;">
+                    {{ manual_verify_row_error }} Reupload image after changing filter to Most relevant.
+                </div>
+            {% endif %}
+            {% if show_filter_guide %}
+                <div style="margin-top:0.6rem;display:flex;justify-content:center;">
+                    <div style="width:min(560px, 100%);height:340px;overflow-y:auto;overflow-x:hidden;border:1px solid #f0d7d7;border-radius:8px;background:#fff;">
+                        <img src="{% static 'subscribers/images/corrcet_way.jpg' %}" alt="Correct filter guide" style="display:block;width:100%;height:auto;">
+                    </div>
+                </div>
+            {% endif %}
+            <form method="post" action="{% url 'subscribers:make_verify_from_images' %}" enctype="multipart/form-data"> 
+                {% csrf_token %} 
+                <div class="manual-verify-row"> 
+                    <div class="manual-upload-box">
+                        <input type="file" id="verification_image" name="verification_image" accept="image/*" required>
+                        <label for="verification_image" class="manual-upload-trigger">
+                            <span class="manual-upload-icon">📷</span>
+                            <span>
+                                {% if manual_verify_row_error %}
+                                    Reupload subscribed screenshot
+                                {% else %}
+                                    Insert subscribed screenshot
+                                {% endif %}
+                            </span>
+                        </label>
+                        <span id="selected-file-name" class="manual-upload-name">No file selected</span>
+                    </div>
+                    <button type="submit" class="btn btn-secondary">Make Verify</button> 
+                </div> 
+            </form> 
+            {% if manual_visible_targets %} 
+                <div class="task-matrix">
+                    {% for target in manual_visible_targets %}
+                        {% if target.id not in manual_verified_target_ids %}
+                            <article class="task-cell">
+                                <div class="task-cell-header">
+                                    <div class="task-user">
+                                        <strong>{{ target.handle|default:target.user.username }}</strong>
+                                        {% if target.handle %}
+                                            <span class="handle-note">{{ target.handle }}</span>
+                                        {% endif %}
+                                    </div>
+                                    <form method="post" action="{% url 'subscribers:manual_subscribe_task_assign' %}" target="_blank">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="target_profile_id" value="{{ target.id }}">
+                                        {% if target.id in manual_unverified_target_ids %}
+                                            <button type="button" class="btn-subscribe" disabled>Unverified</button>
+                                        {% elif target.subscribed_status or target.subscribe_status %}
+                                            <button type="button" class="btn-subscribe" disabled>{{ target.subscribed_status|default:target.subscribe_status|capfirst }}</button>
+                                        {% else %}
+                                            <button type="submit" class="btn-subscribe">Subscribe</button>
+                                        {% endif %}
+                                    </form>
+                                </div>
+                            </article>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p>No manual subscribe tasks yet.</p>
+            {% endif %}
+        </section>
+        <section class="task-panel">
+            <div class="manual-guide-video-wrap">
+                <div class="manual-video-card">
+                    <h3>Manual Verification Video</h3>
+                    <p>Follow this quick guide before uploading your screenshot for verification.</p>
+                    <iframe
+                        class="manual-guide-video"
+                        src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+                        title="Manual verification guide"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowfullscreen
+                    ></iframe>
+                </div>
+            </div>
+        </section>
+    </div>
+    <script>
+        (function () {
+            const fileInput = document.getElementById("verification_image");
+            const fileName = document.getElementById("selected-file-name");
+            if (!fileInput || !fileName) return;
+            fileInput.addEventListener("change", function () {
+                const picked = fileInput.files && fileInput.files[0] ? fileInput.files[0].name : "No file selected";
+                fileName.textContent = picked;
+            });
+        })();
+    </script>
+{% endblock %}

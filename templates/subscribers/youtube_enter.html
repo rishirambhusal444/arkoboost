@@ -183,6 +183,34 @@
         margin-top: 0.9rem;
         display: block;
     }
+    .handle-box {
+        margin-top: 0.85rem;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        border-radius: 10px;
+        padding: 0.8rem;
+    }
+    .handle-box form {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    .handle-box input {
+        flex: 1 1 260px;
+        min-width: 180px;
+        border: 1px solid #ffd1d1;
+        border-radius: 8px;
+        padding: 0.5rem 0.7rem;
+    }
+    .handle-box button {
+        border: 0;
+        border-radius: 8px;
+        padding: 0.5rem 0.9rem;
+        font-weight: 700;
+        background: #ffffff;
+        color: #b90000;
+    }
     .btn-enter-task {
         width: 100%;
         text-align: center;
@@ -211,6 +239,18 @@
         .btn-refresh-top {
             width: 100%;
         }
+        .yt-hero {
+            padding: 1rem;
+            border-radius: 10px;
+        }
+        .handle-box form {
+            display: grid;
+            grid-template-columns: 1fr;
+        }
+        .handle-box input,
+        .handle-box button {
+            width: 100%;
+        }
     }
 </style>
 
@@ -223,8 +263,22 @@
             </div>
             <a href="{% url 'subscribers:scan_now' %}" class="btn btn-outline-light btn-refresh-top">Refresh Data</a>
         </div>
+        {% if not has_handle %}
+            <div class="handle-box">
+                <p style="margin:0 0 0.5rem;font-weight:700;">Enter your YouTube handle to make YouTube tasks work.</p>
+                <form id="yt-handle-form" method="post" action="{% url 'subscribers:update_youtube_handle' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next_url" value="{% url 'subscribers:youtube_tasks' %}">
+                    <input name="youtube_handle" type="text" placeholder="@yourhandle or youtube.com/@yourhandle" required>
+                </form>
+            </div>
+        {% endif %}
         <div class="yt-cta-bar">
-            <a href="{% url 'subscribers:youtube_tasks' %}" class="btn btn-enter-task">Enter YouTube Task Page</a>
+            {% if has_handle %}
+                <a href="{% url 'subscribers:youtube_tasks' %}" class="btn btn-enter-task">Enter YouTube Task Page</a>
+            {% else %}
+                <button type="submit" form="yt-handle-form" class="btn btn-enter-task" title="Enter a handle (must start with @), then continue">Enter YouTube Task Page</button>
+            {% endif %}
         </div>
     </section>
 
@@ -271,7 +325,8 @@
         <div class="p-3">
             <canvas id="ytSingleGraph" height="110"></canvas>
         </div>
-    </section>`n</div>
+    </section>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>

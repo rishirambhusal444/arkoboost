@@ -109,19 +109,113 @@
         }
 
         .signup-link {
-            text-align: center;
-            margin-top: 1rem;
+            margin-top: 0.7rem;
             color: #666;
+            font-size: 0.95rem;
+        }
+        
+        .divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 1rem 0;
+            color: #bbb;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .divider span {
+            padding: 0 0.75rem;
+            color: #999;
+            font-size: 0.9rem;
+        }
+
+        .form-group {
+            margin-bottom: 0.9rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.35rem;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.7rem 0.8rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.95rem;
+        }
+        
+        .password-wrap {
+            position: relative;
+        }
+
+        .password-wrap input {
+            padding-right: 4.8rem;
+        }
+
+        .toggle-password-btn {
+            position: absolute;
+            top: 50%;
+            right: 0.45rem;
+            transform: translateY(-50%);
+            border: 1px solid #ddd;
+            background: #fff;
+            color: #444;
+            border-radius: 6px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            padding: 0.24rem 0.48rem;
+            cursor: pointer;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #ff4b4b;
+            box-shadow: 0 0 0 3px rgba(255, 75, 75, 0.12);
+        }
+
+        .manual-login-btn {
+            width: fit-content;
+            min-width: 180px;
+            border: none;
+            border-radius: 6px;
+            padding: 0.55rem 0.9rem;
+            background: #111827;
+            color: #fff;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: block;
+            margin-left: auto;
+        }
+
+        .manual-login-btn:hover {
+            background: #000000;
         }
 
         .signup-link a {
-            color: #FF0000;
+            display: inline-block;
+            margin-left: 0.5rem;
+            padding: 0.55rem 0.9rem;
+            border-radius: 6px;
+            background: #FF0000;
+            color: #fff;
             text-decoration: none;
+            font-size: 0.9rem;
             font-weight: 600;
         }
 
         .signup-link a:hover {
-            text-decoration: underline;
+            background: #CC0000;
         }
 
         .error-message {
@@ -152,6 +246,16 @@
                 margin: 1.5rem auto;
                 padding: 1.1rem;
             }
+
+            .manual-login-btn {
+                width: 100%;
+                min-width: 0;
+                margin-left: 0;
+            }
+
+            .signup-link a {
+                margin-left: 0.35rem;
+            }
         }
 {% endblock %}
 
@@ -165,6 +269,28 @@
                 <div class="error-message">{{ message }}</div>
             {% endfor %}
         {% endif %}
+
+        <form method="post" action="">
+            {% csrf_token %}
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required minlength="8" maxlength="12" pattern="^[a-z][a-z0-9_.-]{7,11}$" title="8-12 chars: start with lowercase letter, then lowercase letters, numbers, dot, dash or underscore.">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <div class="password-wrap">
+                    <input type="password" id="password" name="password" required>
+                    <button type="button" class="toggle-password-btn" data-target="password">Show</button>
+                </div>
+            </div>
+            <button type="submit" class="manual-login-btn">Login with Username</button>
+        </form>
+
+        <div class="signup-link">
+            Don't have an account? <a href="{% url 'subscribers:signup' %}">Sign up here</a>
+        </div>
+
+        <div class="divider"><span>OR</span></div>
 
         <div class="platform-grid">
             <section class="platform-card youtube">
@@ -189,8 +315,18 @@
             Facebook login is hidden for now while Page permissions are prepared.
         </div>
 
-        <div class="signup-link">
-            Don't have an account? <a href="{% url 'subscribers:signup' %}">Sign up here</a>
-        </div>
     </div>
+    <script>
+        (function () {
+            document.querySelectorAll(".toggle-password-btn").forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    const input = document.getElementById(btn.getAttribute("data-target"));
+                    if (!input) return;
+                    const nextType = input.type === "password" ? "text" : "password";
+                    input.type = nextType;
+                    btn.textContent = nextType === "password" ? "Show" : "Hide";
+                });
+            });
+        })();
+    </script>
 {% endblock %}

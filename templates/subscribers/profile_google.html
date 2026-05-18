@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Profile - NewYoutubers{% endblock %}
+{% block title %}Google Profile - NewYoutubers{% endblock %}
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'subscribers/css/profile.css' %}">
@@ -10,12 +10,13 @@
 {% block content %}
     <div class="container profile-shell profile-theme-{{ profile_theme }}">
         <section class="tasks-entry">
+            <p style="margin:0 0 0.7rem 0;font-weight:700;color:#2a71ff;">Google Connected Profile</p>
             <div class="task-cta-panel">
                 <div class="task-cta-buttons">
                     {% if profile.google_subject_id %}
-                        <a href="{% url 'subscribers:enter_youtube_tasks' %}" class="task-cta-btn tasks">Subscribe</a>
+                        <a href="{% url 'subscribers:handle_insert_page' %}" class="task-cta-btn tasks">Subscribe</a>
                     {% else %}
-                        <a href="{% url 'subscribers:enter_youtube_tasks_manual' %}" class="task-cta-btn tasks">Manual Subscribe</a>
+                        <a href="{% url 'subscribers:subscribe_tasks_manual' %}" class="task-cta-btn tasks">Manual Subscribe</a>
                     {% endif %}
                     <a href="{% url 'subscribers:enter_watch_tasks' %}" class="task-cta-btn watch">Video view and 
                          </a>

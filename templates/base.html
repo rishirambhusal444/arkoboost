@@ -16,6 +16,7 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #333;
             background: #f9f9f9;
+            overflow-x: hidden;
         }
 
         /* Navigation */
@@ -26,6 +27,8 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
             position: fixed;
             top: 0;
             left: 0;
@@ -51,6 +54,9 @@
             display: flex;
             list-style: none;
             gap: 2rem;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            margin-left: auto;
         }
 
         .logo-red {
@@ -70,6 +76,52 @@
 
         nav a:hover {
             color: #FF0000;
+        }
+
+        .account-item {
+            position: relative;
+        }
+
+        .account-toggle {
+            background: #fff;
+            border: 1px solid #ececec;
+            border-radius: 999px;
+            padding: 0.35rem 0.8rem;
+            color: #333;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .account-menu {
+            position: absolute;
+            right: 0;
+            top: calc(100% + 0.35rem);
+            min-width: 170px;
+            background: #fff;
+            border: 1px solid #ececec;
+            border-radius: 10px;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+            padding: 0.35rem;
+            display: none;
+            z-index: 1200;
+        }
+
+        .account-menu.open {
+            display: block;
+        }
+
+        .account-menu a {
+            display: block;
+            padding: 0.5rem 0.65rem;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #222;
+            font-size: 0.92rem;
+        }
+
+        .account-menu a:hover {
+            background: #f6f6f6;
+            color: #111;
         }
 
         /* Messages */
@@ -112,6 +164,16 @@
             max-width: 1200px;
             margin: 0 auto;
             padding: 2rem;
+        }
+
+        img, iframe, video {
+            max-width: 100%;
+            height: auto;
+        }
+
+        table {
+            width: 100%;
+            max-width: 100%;
         }
 
         /* Buttons */
@@ -197,42 +259,87 @@
             text-decoration: underline;
         }
 
+        @media (max-width: 992px) {
+            nav {
+                padding: 0.85rem 1rem;
+                flex-wrap: nowrap;
+            }
+
+            .logo {
+                font-size: 1.4rem;
+            }
+
+            nav ul {
+                gap: 1rem;
+                width: auto;
+                justify-content: flex-start;
+                justify-content: flex-end;
+                margin-left: auto;
+            }
+
+            .messages {
+                padding: 0.85rem 1rem;
+            }
+
+            main {
+                padding-top: 92px;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+        }
+
+        @media (max-width: 640px) {
+            nav ul { gap: 0.7rem; }
+
+            .btn {
+                width: 100%;
+                text-align: center;
+            }
+
+            footer {
+                padding: 1.35rem 1rem;
+            }
+
+            .footer-links {
+                flex-wrap: wrap;
+                gap: 0.75rem 1rem;
+            }
+        }
+
         {% block extra_css %} {% endblock %}
     </style>
     {% block extra_head %}{% endblock %}
 </head>
 <body>
     <nav>
-<a>
+<a href="{% url 'subscribers:home' %}" class="logo">
                 <span class="logo-red">ARKO</span>
             <span class="logo-blue">BOOST</span>
         </a>
         <ul>
             {% if user.is_authenticated %}
-                <li>
-                    <a href="{% url 'subscribers:profile' %}">
-                        {% if user.subscriber_profile %}
-                            {{ user.subscriber_profile.channel_title|default:user.subscriber_profile.handle|default:user.handle|default:user.username }}
-                        {% else %}
-                            {{ user.handle|default:user.username }}
-                        {% endif %}
-                    </a>
+                <li class="account-item">
+                    <button type="button" id="accountToggle" class="account-toggle" aria-expanded="false" aria-controls="accountMenu">
+                        {% with profile=user.subscriber_profiles.first %}
+                            {% if profile %}
+                                {{ profile.channel_title|default:profile.handle|default:user.handle|default:user.username }}
+                            {% else %}
+                                {{ user.handle|default:user.username }}
+                            {% endif %}
+                        {% endwith %}
+                    </button>
+                    <div class="account-menu" id="accountMenu">
+                        <a href="{% url 'subscribers:profile' %}">Profile</a>
+                        <a href="{% url 'subscribers:logout' %}">Logout</a>
+                    </div>
                 </li>
-                <li><a href="{% url 'subscribers:logout' %}">Logout</a></li>
             {% else %}
-                <li><a href="{% url 'subscribers:profile' %}">Profile</a></li>
                 <li><a href="{% url 'subscribers:login' %}">Login</a></li>
             {% endif %}
         </ul>
     </nav>
-
-    {% if messages %}
-    <div class="messages">
-        {% for message in messages %}
-        <div class="message {{ message.tags }}">{{ message }}</div>
-        {% endfor %}
-    </div>
-    {% endif %}
 
     <main>
         {% block content %}{% endblock %}
@@ -246,5 +353,27 @@
             <a href="#">Contact</a>
         </div>
     </footer>
+    {% if user.is_authenticated %}
+    <script>
+        (function () {
+            const toggle = document.getElementById("accountToggle");
+            const menu = document.getElementById("accountMenu");
+            if (!toggle || !menu) return;
+
+            toggle.addEventListener("click", function () {
+                const willOpen = !menu.classList.contains("open");
+                menu.classList.toggle("open", willOpen);
+                toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+            });
+
+            document.addEventListener("click", function (event) {
+                if (!menu.contains(event.target) && !toggle.contains(event.target)) {
+                    menu.classList.remove("open");
+                    toggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        })();
+    </script>
+    {% endif %}
 </body>
 </html>

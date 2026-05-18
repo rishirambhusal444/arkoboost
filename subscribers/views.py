@@ -1,15 +1,23 @@
 import logging
 import json
 import secrets
+import re
+import shutil
+from urllib.parse import quote
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from collections import Counter
 from datetime import timedelta
+from pathlib import Path
 from urllib.parse import urlparse
 from urllib.parse import parse_qs
 
-from django.conf import settings
+from django.conf import settings 
+from django.core.cache import cache
 from django.contrib import messages
-from django.contrib.auth import get_user_model, login, logout
+from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.contrib.auth.decorators import login_required
+from django.db import IntegrityError
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, Sum, Value, When
 from django.http import JsonResponse
@@ -21,9 +29,14 @@ from django.views.decorators.http import require_GET, require_POST
 from .models import (
     FacebookProfile,
     FacebookTaskAssing,
+    ManualSubscribeProfile,
+    ManualSubscribeTaskAssign,
     SubscriberProfile,
     TopUserSubscribeTask,
+    User,
+    VerificationImage,
     Video,
+    VideoProfile,
     VideoWatchTask,
 )
 from .services import (
@@ -56,6 +69,134 @@ HEARTBEAT_MAX_SECONDS = 15
 MAX_VALID_SECONDS_PER_MINUTE = 45
 MAX_SEEKS_PER_WINDOW = 6
 MAX_PAUSES_PER_WINDOW = 12
+USERNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_.-]{7,11}$")
+STRONG_PASSWORD_PATTERN = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{6,}$")
+HANDLE_REGEX = re.compile(r"@([a-z0-9._-]{3,40})", re.IGNORECASE)
+NEW_ACTIVITY_REGEX = re.compile(r"\bnew\s+activity\b", re.IGNORECASE)
+MOST_RELEVANT_REGEX = re.compile(r"\bmost\s+relevant\b", re.IGNORECASE)
+LOYAL_SCORE_KEYWORDS = [ 
+    "all subscriptions",
+    "new activity",
+    "home",
+    "shorts",
+    "subscriptions",
+    "you",
+] 
+
+REBALANCE_COOLDOWN_SECONDS = int(getattr(settings, "REBALANCE_COOLDOWN_SECONDS", 30))
+ACTIVITY_WINDOW_MINUTES = int(getattr(settings, "TASK_ACTIVITY_WINDOW_MINUTES", 5))
+LOCAL_ASSIGN_CAP = int(getattr(settings, "LOCAL_ASSIGN_CAP", 3))
+MANUAL_PENDING_STATUSES = (
+    ManualSubscribeTaskAssign.STATUS_ASSIGNED,
+    ManualSubscribeTaskAssign.STATUS_UNVERIFIED,
+)
+
+
+def _run_throttled_rebalance(now, mode: str, *, online_minutes: int = 10) -> bool:
+    """
+    Run rebalance at most once per cooldown window per mode.
+    Uses cache lock + timestamp to avoid repeated heavy rebalance queries
+    when many users load task pages at the same time.
+    """
+    cache_key_due = f"rebalance:{mode}:last_run_ts"
+    cache_key_lock = f"rebalance:{mode}:lock"
+    now_ts = int(now.timestamp())
+    last_run_ts = int(cache.get(cache_key_due) or 0)
+    if now_ts - last_run_ts < REBALANCE_COOLDOWN_SECONDS:
+        return False
+    lock_acquired = cache.add(cache_key_lock, "1", timeout=15)
+    if not lock_acquired:
+        return False
+    try:
+        # Double-check after lock to avoid thundering herd at boundary.
+        last_run_ts = int(cache.get(cache_key_due) or 0)
+        if now_ts - last_run_ts < REBALANCE_COOLDOWN_SECONDS:
+            return False
+        if mode == "google":
+            _rebalance_active_top_user_tasks(now, online_minutes=online_minutes)
+        elif mode == "manual":
+            _rebalance_active_manual_subscribe_tasks(now, online_minutes=online_minutes)
+        else:
+            return False
+        cache.set(cache_key_due, now_ts, timeout=REBALANCE_COOLDOWN_SECONDS * 4)
+        return True
+    finally:
+        cache.delete(cache_key_lock)
+
+
+def _is_google_user(user) -> bool:
+    if getattr(user, "account_mode", User.ACCOUNT_MODE_MANUAL) != User.ACCOUNT_MODE_GOOGLE:
+        return False
+    profile = SubscriberProfile.objects.filter(user=user).only("google_subject_id").first()
+    return bool(profile and profile.google_subject_id)
+
+
+def _manual_profile_defaults(user, manual_profile=None):
+    handle = (getattr(user, "handle", "") or getattr(user, "username", "")).strip()
+    category = SubscriberProfile.CATEGORY_OTHER
+    if manual_profile and manual_profile.category:
+        category = manual_profile.category
+    return {
+        "handle": handle,
+        "category": category,
+        "subscribed_channel_count": 0,
+        "channel_subscriber_count": 0,
+        "subscriber_change_since_last_scan": 0,
+        "video_score": 0,
+        "video_score_reserved": 0,
+        "channel_total_view_count": 0,
+        "channel_video_count": 0,
+        "active_status": True,
+        "active_status_for_youtube": True,
+        "active_status_for_video": False,
+    }
+
+
+def _get_or_create_video_profile(user):
+    return VideoProfile.objects.get_or_create(user=user)
+
+
+def _get_google_profile(user):
+    return SubscriberProfile.objects.filter(user=user).first()
+
+
+def _has_valid_manual_handle(manual_profile, user, profile=None) -> bool:
+    if manual_profile and (manual_profile.handle or "").strip().startswith("@"):
+        return True
+    if profile and (profile.handle or "").strip().startswith("@"):
+        return True
+    return bool((getattr(user, "handle", "") or "").strip().startswith("@"))
+
+
+def _get_or_create_distribution_profile_for_manual(manual_profile: ManualSubscribeProfile) -> SubscriberProfile | None:
+    if not manual_profile or not manual_profile.user_id:
+        return None
+    profile = SubscriberProfile.objects.filter(user_id=manual_profile.user_id).first()
+    desired_handle = (manual_profile.handle or "").strip()
+    desired_category = (manual_profile.category or SubscriberProfile.CATEGORY_OTHER).strip() or SubscriberProfile.CATEGORY_OTHER
+    if profile is None:
+        profile = SubscriberProfile.objects.create(
+            user_id=manual_profile.user_id,
+            handle=desired_handle,
+            category=desired_category,
+            active_status=True,
+        )
+        return profile
+
+    updates = []
+    if desired_handle and profile.handle != desired_handle:
+        profile.handle = desired_handle
+        updates.append("handle")
+    if profile.category != desired_category:
+        profile.category = desired_category
+        updates.append("category")
+    if not profile.active_status:
+        profile.active_status = True
+        updates.append("active_status")
+    if updates:
+        updates.append("updated_at")
+        profile.save(update_fields=updates)
+    return profile
 
 
 def _required_google_settings_missing() -> bool:
@@ -97,7 +238,7 @@ def _extract_youtube_video_id(raw_url: str) -> str:
     return ""
 
 
-def _featured_videos_for_watch_page(current_profile: SubscriberProfile) -> list[dict]:
+def _featured_videos_for_watch_page(current_profile: SubscriberProfile | None, current_user) -> list[dict]:
     """
     Build a distributed video task pool for active users.
     Rule:
@@ -105,8 +246,8 @@ def _featured_videos_for_watch_page(current_profile: SubscriberProfile) -> list[
     - each video row counts as one task item
     """
     eligible_owner_ids = list(
-        SubscriberProfile.objects.filter(active_status=True, video_score__gt=0)
-        .exclude(id=current_profile.id)
+        VideoProfile.objects.filter(active_status_for_video=True, video_score__gt=0)
+        .exclude(user_id=current_user.id)
         .values_list("user_id", flat=True)
     )
     if not eligible_owner_ids:
@@ -116,7 +257,10 @@ def _featured_videos_for_watch_page(current_profile: SubscriberProfile) -> list[
         row["user_id"]: row["category"]
         for row in SubscriberProfile.objects.filter(user_id__in=eligible_owner_ids).values("user_id", "category")
     }
-    current_category = (current_profile.category or SubscriberProfile.CATEGORY_OTHER).strip().lower()
+    current_category = (
+        (current_profile.category if current_profile else SubscriberProfile.CATEGORY_OTHER)
+        or SubscriberProfile.CATEGORY_OTHER
+    ).strip().lower()
     same_category_owner_ids = [
         user_id
         for user_id, category in owner_profiles_by_user_id.items()
@@ -201,56 +345,470 @@ def _is_same_category(receiver: SubscriberProfile, target: SubscriberProfile) ->
     return receiver_category == target_category
 
 
-def _transfer_score_for_verified_task(task: TopUserSubscribeTask) -> None:
-    with transaction.atomic():
-        target_updated = SubscriberProfile.objects.filter(
-            id=task.target_profile_id,
-            score__gt=0,
-        ).update(
-            score=F("score") - 1,
-            reserved_score=Case(
-                When(reserved_score__gt=0, then=F("reserved_score") - 1),
-                default=Value(0),
-                output_field=IntegerField(),
-            ),
-        )
-        if target_updated:
-            SubscriberProfile.objects.filter(id=task.profile_id).update(score=F("score") + 1)
+def _is_same_manual_category(receiver: ManualSubscribeProfile, target: ManualSubscribeProfile) -> bool:
+    receiver_category = (receiver.category or SubscriberProfile.CATEGORY_OTHER).strip().lower()
+    target_category = (target.category or SubscriberProfile.CATEGORY_OTHER).strip().lower()
+    return receiver_category == target_category
 
 
-def _release_unverified_task_reservations(task_qs) -> None:
+def _release_unverified_task_reservations(task_qs) -> None:  
     task_rows = list(task_qs.values_list("id", "target_profile_id"))
     if not task_rows:
         return
 
     task_ids = [task_id for task_id, _ in task_rows]
-    reserved_by_target_id = Counter(target_id for _, target_id in task_rows)
-    with transaction.atomic():
-        TopUserSubscribeTask.objects.filter(id__in=task_ids).delete()
-        for target_id, released_count in reserved_by_target_id.items():
-            SubscriberProfile.objects.filter(id=target_id).update(
-                reserved_score=Case(
-                    When(
-                        reserved_score__gte=released_count,
-                        then=F("reserved_score") - released_count,
-                    ),
+    reserved_by_target_id = Counter(target_id for _, target_id in task_rows) 
+    with transaction.atomic(): 
+        TopUserSubscribeTask.objects.filter(id__in=task_ids).delete() 
+        for target_id, released_count in reserved_by_target_id.items(): 
+            SubscriberProfile.objects.filter(id=target_id).update( 
+                score=F("score") + released_count
+            ) 
+
+
+def _reserve_targets_for_tasks(tasks: list[TopUserSubscribeTask]) -> None: 
+    if not tasks:
+        return
+
+    reserved_by_target_id = Counter(task.target_profile_id for task in tasks) 
+    with transaction.atomic(): 
+        TopUserSubscribeTask.objects.bulk_create(tasks) 
+        for target_id, reserved_count in reserved_by_target_id.items(): 
+            SubscriberProfile.objects.filter(id=target_id).update( 
+                score=Case(
+                    When(score__gte=reserved_count, then=F("score") - reserved_count),
                     default=Value(0),
                     output_field=IntegerField(),
                 )
-            )
+            ) 
 
 
-def _reserve_targets_for_tasks(tasks: list[TopUserSubscribeTask]) -> None:
+def _release_unverified_manual_task_reservations(task_qs) -> None:  
+    task_rows = list(task_qs.values_list("id", "target_profile_id"))
+    if not task_rows:
+        return
+
+    task_ids = [task_id for task_id, _ in task_rows]
+    reserved_by_target_id = Counter(target_id for _, target_id in task_rows) 
+    with transaction.atomic():  
+        ManualSubscribeTaskAssign.objects.filter(id__in=task_ids).update(
+            subscribed_status=ManualSubscribeTaskAssign.STATUS_RELEASED,
+            active_status=False,
+        )
+        for target_id, released_count in reserved_by_target_id.items():  
+            ManualSubscribeProfile.objects.filter(user__subscriber_profiles__id=target_id).update(  
+                sub_score=F("sub_score") + released_count 
+            )  
+
+
+def _reserve_targets_for_manual_tasks(tasks: list[ManualSubscribeTaskAssign]) -> None:  
     if not tasks:
         return
 
     reserved_by_target_id = Counter(task.target_profile_id for task in tasks)
     with transaction.atomic():
-        TopUserSubscribeTask.objects.bulk_create(tasks)
-        for target_id, reserved_count in reserved_by_target_id.items():
-            SubscriberProfile.objects.filter(id=target_id).update(
-                reserved_score=F("reserved_score") + reserved_count
+        receiver_user_ids = list({task.user_id for task in tasks})
+        target_profile_ids = list({task.target_profile_id for task in tasks})
+        existing_by_pair = {
+            (row.user_id, row.target_profile_id): row
+            for row in ManualSubscribeTaskAssign.objects.filter(
+                user_id__in=receiver_user_ids,
+                target_profile_id__in=target_profile_ids,
             )
+        }
+        rows_to_create = []
+        rows_to_update = []
+        for task in tasks:
+            pair = (task.user_id, task.target_profile_id)
+            existing = existing_by_pair.get(pair)
+            if existing:
+                existing.manual_subscribe_profile_id = task.manual_subscribe_profile_id
+                existing.subscribed_status = ManualSubscribeTaskAssign.STATUS_ASSIGNED
+                existing.active_status = True
+                rows_to_update.append(existing)
+            else:
+                task.subscribed_status = ManualSubscribeTaskAssign.STATUS_ASSIGNED
+                task.active_status = True
+                rows_to_create.append(task)
+        if rows_to_create:
+            ManualSubscribeTaskAssign.objects.bulk_create(rows_to_create)
+        if rows_to_update:
+            ManualSubscribeTaskAssign.objects.bulk_update(
+                rows_to_update,
+                ["manual_subscribe_profile", "subscribed_status", "active_status", "updated_at"],
+            )
+        for target_id, reserved_count in reserved_by_target_id.items():  
+            ManualSubscribeProfile.objects.filter(user__subscriber_profiles__id=target_id).update(  
+                sub_score=Case( 
+                    When(sub_score__gte=reserved_count, then=F("sub_score") - reserved_count), 
+                    default=Value(0),
+                    output_field=IntegerField(),
+                )
+            ) 
+
+
+def _rebalance_active_manual_subscribe_tasks(now, *, online_minutes: int = ACTIVITY_WINDOW_MINUTES) -> None:   
+    window_start = now - timedelta(minutes=online_minutes) 
+    stale_unverified_manual_tasks = ManualSubscribeTaskAssign.objects.filter( 
+        subscribed_status__in=MANUAL_PENDING_STATUSES
+    ).exclude(
+        user__is_active=True,
+        user__manual_subscribe_profile_user__active_status_for_subscribe=True,
+        user__manual_subscribe_profile_user__last_tasks_entry_at__gte=window_start,
+    )
+    receiver_manual_profiles = list( 
+        ManualSubscribeProfile.objects.select_related("user") 
+        .filter( 
+            user__is_active=True, 
+            last_tasks_entry_at__gte=window_start, 
+            active_status_for_subscribe=True,
+        )
+        .order_by("user_id")
+    ) 
+    if not receiver_manual_profiles: 
+        _release_unverified_manual_task_reservations(stale_unverified_manual_tasks) 
+        return 
+ 
+    _release_unverified_manual_task_reservations(stale_unverified_manual_tasks) 
+
+    targets = list( 
+        ManualSubscribeProfile.objects.select_related("user") 
+        .filter( 
+            user__is_active=True, 
+            sub_score__gt=0, 
+            handle__startswith="@", 
+        ) 
+        .order_by("-sub_score", "id") 
+    ) 
+    if not targets:
+        return
+    for target_row in targets:
+        _get_or_create_distribution_profile_for_manual(target_row)
+
+    target_capacity_by_profile_id = { 
+        row.user_id: max(int(row.sub_score or 0), 0)
+        for row in targets 
+    } 
+    target_capacity_by_profile_id = {
+        target_id: capacity for target_id, capacity in target_capacity_by_profile_id.items() if capacity > 0
+    }
+    if not target_capacity_by_profile_id:
+        return
+
+    total_capacity = sum(target_capacity_by_profile_id.values())
+    receiver_count = len(receiver_manual_profiles)
+    if total_capacity <= 0 or receiver_count <= 0:
+        return
+
+    base_quota = total_capacity // receiver_count
+    remainder = total_capacity % receiver_count
+    quota_by_receiver_profile_id = {}
+    for index, receiver_manual_profile in enumerate(receiver_manual_profiles):
+        quota_by_receiver_profile_id[receiver_manual_profile.user_id] = base_quota + (1 if index < remainder else 0)
+
+    target_score_by_profile_id = {row.user_id: int(row.sub_score or 0) for row in targets}
+    target_manual_by_profile_id = {row.user_id: row for row in targets}
+    remaining_by_target_profile_id = target_capacity_by_profile_id.copy()
+    allocated_target_ids_by_receiver_profile_id = {p.user_id: set() for p in receiver_manual_profiles}
+
+    receiver_user_ids = [p.user_id for p in receiver_manual_profiles]
+    target_user_ids = list(target_capacity_by_profile_id.keys())
+    existing_pair_rows = list(
+        ManualSubscribeTaskAssign.objects.filter(
+            user_id__in=receiver_user_ids,
+            target_profile__user_id__in=target_user_ids,
+        ).values_list(
+            "user_id",
+            "target_profile__user_id",
+            "subscribed_status",
+        )
+    )
+    verified_pair_set = {
+        (user_id, target_user_id)
+        for user_id, target_user_id, status in existing_pair_rows
+        if status == ManualSubscribeTaskAssign.STATUS_VERIFIED
+    }
+    existing_unverified_set = {
+        (user_id, target_user_id)
+        for user_id, target_user_id, status in existing_pair_rows
+        if status in MANUAL_PENDING_STATUSES
+    }
+
+    pending_count_by_receiver = Counter(
+        user_id
+        for user_id, _, status in existing_pair_rows
+        if status in MANUAL_PENDING_STATUSES
+    )
+    effective_quota_by_receiver_profile_id = {
+        receiver_id: max(quota_by_receiver_profile_id.get(receiver_id, 0) - pending_count_by_receiver.get(receiver_id, 0), 0)
+        for receiver_id in quota_by_receiver_profile_id
+    }
+    receivers_ordered = sorted(
+        receiver_manual_profiles,
+        key=lambda row: (
+            pending_count_by_receiver.get(row.user_id, 0),
+            row.user_id,
+        ),
+    )
+    max_quota = max(effective_quota_by_receiver_profile_id.values()) if effective_quota_by_receiver_profile_id else 0
+    skip_stats = Counter()
+    for _ in range(max_quota):  
+        for receiver_manual_profile in receivers_ordered:  
+            receiver_profile_id = receiver_manual_profile.user_id 
+            if len(allocated_target_ids_by_receiver_profile_id[receiver_profile_id]) >= effective_quota_by_receiver_profile_id[receiver_profile_id]: 
+                continue 
+
+            candidate_target_profile_ids = []
+            for target_profile_id, remaining in remaining_by_target_profile_id.items():
+                if remaining <= 0:
+                    skip_stats["no_capacity"] += 1
+                    continue
+                if target_profile_id == receiver_profile_id:
+                    skip_stats["self"] += 1
+                    continue
+                if target_profile_id in allocated_target_ids_by_receiver_profile_id[receiver_profile_id]:
+                    skip_stats["already_allocated_this_round"] += 1
+                    continue
+                if (receiver_profile_id, target_profile_id) in verified_pair_set:
+                    skip_stats["already_verified_pair"] += 1
+                    continue
+                if (receiver_profile_id, target_profile_id) in existing_unverified_set:
+                    skip_stats["already_pending_pair"] += 1
+                    continue
+                candidate_target_profile_ids.append(target_profile_id)
+            if not candidate_target_profile_ids: 
+                continue 
+
+            best_target_profile_id = max(
+                candidate_target_profile_ids,
+                key=lambda target_profile_id: (
+                    1
+                    if _is_same_manual_category(
+                        receiver_manual_profile,
+                        target_manual_by_profile_id[target_profile_id],
+                    )
+                    else 0,
+                    remaining_by_target_profile_id[target_profile_id],
+                    target_score_by_profile_id[target_profile_id],
+                    -target_profile_id,
+                ),
+            )
+            allocated_target_ids_by_receiver_profile_id[receiver_profile_id].add(best_target_profile_id) 
+            existing_unverified_set.add((receiver_profile_id, best_target_profile_id))  
+            remaining_by_target_profile_id[best_target_profile_id] -= 1   
+            skip_stats["assigned"] += 1 
+
+    # Fallback pass: consume remaining capacity by assigning to any eligible active receiver.
+    if any(remaining > 0 for remaining in remaining_by_target_profile_id.values()):
+        receiver_ids_ordered = [row.user_id for row in receivers_ordered]
+        for target_profile_id, remaining in list(remaining_by_target_profile_id.items()):
+            if remaining <= 0:
+                continue
+            for receiver_profile_id in receiver_ids_ordered:
+                if remaining <= 0:
+                    break
+                if target_profile_id == receiver_profile_id:
+                    continue
+                if target_profile_id in allocated_target_ids_by_receiver_profile_id[receiver_profile_id]:
+                    continue
+                if (receiver_profile_id, target_profile_id) in verified_pair_set:
+                    continue
+                if (receiver_profile_id, target_profile_id) in existing_unverified_set:
+                    continue
+                allocated_target_ids_by_receiver_profile_id[receiver_profile_id].add(target_profile_id)
+                existing_unverified_set.add((receiver_profile_id, target_profile_id))
+                remaining -= 1
+                skip_stats["fallback_assigned"] += 1
+            remaining_by_target_profile_id[target_profile_id] = remaining
+
+    rows_to_create = []
+    for receiver_manual_profile in receiver_manual_profiles:
+        if receiver_manual_profile is None:
+            continue
+        for target_profile_id in allocated_target_ids_by_receiver_profile_id[receiver_manual_profile.user_id]:
+            target_profile = SubscriberProfile.objects.filter(user_id=target_profile_id).first()
+            if not target_profile:
+                target_manual = target_manual_by_profile_id.get(target_profile_id)
+                if target_manual:
+                    target_profile = _get_or_create_distribution_profile_for_manual(target_manual)
+            if not target_profile:
+                continue
+            rows_to_create.append(
+                ManualSubscribeTaskAssign(
+                    user_id=receiver_manual_profile.user_id,
+                    manual_subscribe_profile=receiver_manual_profile,
+                    target_profile=target_profile,
+                    subscribed_status=ManualSubscribeTaskAssign.STATUS_ASSIGNED, 
+                    active_status=True, 
+                ) 
+            ) 
+    _reserve_targets_for_manual_tasks(rows_to_create) 
+    logger.info( 
+        "manual_rebalance summary receivers=%s targets=%s assigned=%s fallback_assigned=%s skip_self=%s skip_verified=%s skip_pending=%s skip_no_capacity=%s", 
+        len(receiver_manual_profiles), 
+        len(target_capacity_by_profile_id), 
+        skip_stats.get("assigned", 0), 
+        skip_stats.get("fallback_assigned", 0),
+        skip_stats.get("self", 0), 
+        skip_stats.get("already_verified_pair", 0), 
+        skip_stats.get("already_pending_pair", 0), 
+        skip_stats.get("no_capacity", 0), 
+    )
+
+
+def _build_manual_suggested_targets_for_user( 
+    user,
+    now,
+    *,
+    online_minutes: int = ACTIVITY_WINDOW_MINUTES, 
+) -> list[SubscriberProfile]: 
+    window_start = now - timedelta(minutes=online_minutes)
+    receiver_manual_profiles = list(
+        ManualSubscribeProfile.objects.select_related("user")
+        .filter(
+            user__is_active=True,
+            last_tasks_entry_at__gte=window_start,
+            active_status_for_subscribe=True,
+        )
+        .order_by("user_id")
+    )
+    if not receiver_manual_profiles:
+        return []
+
+    receiver_by_user_id = {row.user_id: row for row in receiver_manual_profiles}
+    current_receiver = receiver_by_user_id.get(user.id)
+    if current_receiver is None:
+        return []
+
+    targets = list( 
+        ManualSubscribeProfile.objects.select_related("user") 
+        .filter( 
+            user__is_active=True, 
+            sub_score__gt=0, 
+            handle__startswith="@", 
+        ) 
+        .order_by("-sub_score", "id") 
+    ) 
+    if not targets:
+        return []
+    for target_row in targets:
+        _get_or_create_distribution_profile_for_manual(target_row)
+
+    target_capacity_by_profile_id = { 
+        row.user_id: max(int(row.sub_score or 0), 0)
+        for row in targets 
+    } 
+    target_capacity_by_profile_id = {
+        target_id: capacity for target_id, capacity in target_capacity_by_profile_id.items() if capacity > 0
+    }
+    if not target_capacity_by_profile_id:
+        return []
+
+    total_capacity = sum(target_capacity_by_profile_id.values())
+    receiver_count = len(receiver_manual_profiles)
+    if total_capacity <= 0 or receiver_count <= 0:
+        return []
+
+    base_quota = total_capacity // receiver_count
+    remainder = total_capacity % receiver_count
+    quota_by_receiver_profile_id = {}
+    for index, receiver_manual_profile in enumerate(receiver_manual_profiles):
+        quota_by_receiver_profile_id[receiver_manual_profile.user_id] = base_quota + (1 if index < remainder else 0)
+
+    target_score_by_profile_id = {row.user_id: int(row.sub_score or 0) for row in targets}
+    target_manual_by_profile_id = {row.user_id: row for row in targets}
+    remaining_by_target_profile_id = target_capacity_by_profile_id.copy()
+    allocated_target_ids_by_receiver_profile_id = {p.user_id: set() for p in receiver_manual_profiles}
+
+    receiver_user_ids = [p.user_id for p in receiver_manual_profiles]
+    target_user_ids = list(target_capacity_by_profile_id.keys())
+    existing_pair_rows = list(
+        ManualSubscribeTaskAssign.objects.filter(
+            user_id__in=receiver_user_ids,
+            target_profile__user_id__in=target_user_ids,
+        ).values_list(
+            "user_id",
+            "target_profile__user_id",
+            "subscribed_status",
+        )
+    )
+    verified_pair_set = {
+        (user_id, target_user_id)
+        for user_id, target_user_id, status in existing_pair_rows
+        if status == ManualSubscribeTaskAssign.STATUS_VERIFIED
+    }
+    existing_unverified_set = {
+        (user_id, target_user_id)
+        for user_id, target_user_id, status in existing_pair_rows
+        if status in MANUAL_PENDING_STATUSES
+    }
+
+    pending_count_by_receiver = Counter(
+        user_id
+        for user_id, _, status in existing_pair_rows
+        if status in MANUAL_PENDING_STATUSES
+    )
+    effective_quota_by_receiver_profile_id = {
+        receiver_id: max(quota_by_receiver_profile_id.get(receiver_id, 0) - pending_count_by_receiver.get(receiver_id, 0), 0)
+        for receiver_id in quota_by_receiver_profile_id
+    }
+    receivers_ordered = sorted(
+        receiver_manual_profiles,
+        key=lambda row: (
+            pending_count_by_receiver.get(row.user_id, 0),
+            row.user_id,
+        ),
+    )
+    max_quota = max(effective_quota_by_receiver_profile_id.values()) if effective_quota_by_receiver_profile_id else 0
+    for _ in range(max_quota): 
+        for receiver_manual_profile in receivers_ordered: 
+            receiver_profile_id = receiver_manual_profile.user_id 
+            if len(allocated_target_ids_by_receiver_profile_id[receiver_profile_id]) >= effective_quota_by_receiver_profile_id[receiver_profile_id]: 
+                continue 
+
+            candidate_target_profile_ids = [
+                target_profile_id
+                for target_profile_id, remaining in remaining_by_target_profile_id.items()
+                if remaining > 0
+                and target_profile_id != receiver_profile_id
+                and target_profile_id not in allocated_target_ids_by_receiver_profile_id[receiver_profile_id]
+                and (receiver_profile_id, target_profile_id) not in verified_pair_set
+                and (receiver_profile_id, target_profile_id) not in existing_unverified_set
+            ] 
+            if not candidate_target_profile_ids:
+                continue
+
+            best_target_profile_id = max(
+                candidate_target_profile_ids,
+                key=lambda target_profile_id: (
+                    1 if _is_same_manual_category(receiver_manual_profile, target_manual_by_profile_id[target_profile_id]) else 0,
+                    remaining_by_target_profile_id[target_profile_id],
+                    target_score_by_profile_id[target_profile_id],
+                    -target_profile_id,
+                ),
+            )
+            allocated_target_ids_by_receiver_profile_id[receiver_profile_id].add(best_target_profile_id)
+            existing_unverified_set.add((receiver_profile_id, best_target_profile_id))
+            remaining_by_target_profile_id[best_target_profile_id] -= 1 
+
+    target_ids_for_current = allocated_target_ids_by_receiver_profile_id.get(current_receiver.user_id, set())
+    if not target_ids_for_current:
+        return []
+
+    profiles_by_id = {
+        row.user_id: row
+        for row in SubscriberProfile.objects.select_related("user").filter(user_id__in=target_ids_for_current)
+    }
+    missing_target_user_ids = [uid for uid in target_ids_for_current if uid not in profiles_by_id]
+    if missing_target_user_ids:
+        targets_by_user_id = {row.user_id: row for row in targets}
+        for missing_uid in missing_target_user_ids:
+            target_manual = targets_by_user_id.get(missing_uid)
+            if target_manual:
+                created_profile = _get_or_create_distribution_profile_for_manual(target_manual)
+                if created_profile:
+                    profiles_by_id[missing_uid] = created_profile
+    return [profiles_by_id[target_id] for target_id in sorted(target_ids_for_current) if target_id in profiles_by_id]
 
 
 def _sync_top_user_task_verified_status(
@@ -288,11 +846,10 @@ def _sync_top_user_task_verified_status(
     for task in tasks:
         target_handle = _normalize_handle(task.target_profile.handle)
         is_verified = bool(target_handle and target_handle in subscribed_handles)
-        if is_verified and not task.verified_status:
-            task.verified_status = True
-            task.updated_at = now
-            changed_tasks.append(task)
-            _transfer_score_for_verified_task(task)
+        if is_verified and not task.verified_status: 
+            task.verified_status = True 
+            task.updated_at = now 
+            changed_tasks.append(task) 
     if changed_tasks:
         TopUserSubscribeTask.objects.bulk_update(
             changed_tasks,
@@ -303,44 +860,47 @@ def _sync_top_user_task_verified_status(
     return True
 
 
-def _rebalance_active_top_user_tasks(now, *, online_minutes: int = 10) -> None:
-    window_start = now - timedelta(minutes=online_minutes)
-    active_profiles = list(
-        SubscriberProfile.objects.select_related("user")
-        .filter(
-            user__is_active=True,
-            active_status=True,
+def _rebalance_active_top_user_tasks(now, *, online_minutes: int = ACTIVITY_WINDOW_MINUTES) -> None: 
+    window_start = now - timedelta(minutes=online_minutes) 
+    stale_unverified_top_user_tasks = TopUserSubscribeTask.objects.filter(
+        verified_status=False
+    ).exclude(
+        profile__user__is_active=True,
+        profile__active_status=True,
+        profile__last_tasks_entry_at__gte=window_start,
+    )
+    active_profiles = list( 
+        SubscriberProfile.objects.select_related("user") 
+        .filter( 
+            user__is_active=True, 
+            active_status=True, 
             last_tasks_entry_at__gte=window_start,
         )
         .order_by("id")
-    )
-    if not active_profiles:
-        _release_unverified_task_reservations(
-            TopUserSubscribeTask.objects.filter(verified_status=False)
-        )
-        return
+    ) 
+    if not active_profiles: 
+        _release_unverified_task_reservations(stale_unverified_top_user_tasks) 
+        return 
+ 
+    receivers = active_profiles 
+    _release_unverified_task_reservations(stale_unverified_top_user_tasks) 
 
-    receivers = active_profiles
-    _release_unverified_task_reservations(
-        TopUserSubscribeTask.objects.filter(verified_status=False)
-    )
-
-    targets = list(
-        SubscriberProfile.objects.select_related("user")
-        .filter(
-            user__is_active=True,
-            score__gt=F("reserved_score"),
-        )
-        .exclude(channel_id="")
-        .order_by("-score", "id")
-    )
+    targets = list( 
+        SubscriberProfile.objects.select_related("user") 
+        .filter( 
+            user__is_active=True, 
+            score__gt=0, 
+        ) 
+        .exclude(channel_id="") 
+        .order_by("-score", "id") 
+    ) 
     if not targets:
         return
 
-    target_capacity_by_id = {
-        p.id: max(int(p.score or 0) - int(p.reserved_score or 0), 0)
-        for p in targets
-    }
+    target_capacity_by_id = { 
+        p.id: max(int(p.score or 0), 0)
+        for p in targets 
+    } 
     target_capacity_by_id = {
         target_id: capacity
         for target_id, capacity in target_capacity_by_id.items()
@@ -365,28 +925,68 @@ def _rebalance_active_top_user_tasks(now, *, online_minutes: int = 10) -> None:
     remaining_by_target_id = target_capacity_by_id.copy()
     allocated_target_ids_by_receiver_id = {p.id: set() for p in receivers}
     receiver_ids = [p.id for p in receivers]
-    existing_pairs = set(
-        TopUserSubscribeTask.objects.filter(profile_id__in=receiver_ids)
-        .values_list("profile_id", "target_profile_id")
+    target_ids = list(target_capacity_by_id.keys())
+    existing_pair_rows = list(
+        TopUserSubscribeTask.objects.filter(
+            profile_id__in=receiver_ids,
+            target_profile_id__in=target_ids,
+        ).values_list("profile_id", "target_profile_id", "verified_status")
     )
-    max_quota = max(quota_by_receiver_id.values()) if quota_by_receiver_id else 0
+    verified_pair_set = {
+        (profile_id, target_profile_id)
+        for profile_id, target_profile_id, verified in existing_pair_rows
+        if verified
+    }
+    existing_unverified_set = {
+        (profile_id, target_profile_id)
+        for profile_id, target_profile_id, verified in existing_pair_rows
+        if not verified
+    }
+    pending_count_by_receiver = Counter(
+        profile_id
+        for profile_id, _, verified in existing_pair_rows
+        if not verified
+    )
+    effective_quota_by_receiver_id = {
+        receiver_id: max(quota_by_receiver_id.get(receiver_id, 0) - pending_count_by_receiver.get(receiver_id, 0), 0)
+        for receiver_id in quota_by_receiver_id
+    }
+    receivers_ordered = sorted(
+        receivers,
+        key=lambda row: (
+            pending_count_by_receiver.get(row.id, 0),
+            row.id,
+        ),
+    )
+    max_quota = max(effective_quota_by_receiver_id.values()) if effective_quota_by_receiver_id else 0
+    skip_stats = Counter()
 
-    for _ in range(max_quota):
-        for receiver in receivers:
-            receiver_id = receiver.id
-            if len(allocated_target_ids_by_receiver_id[receiver_id]) >= quota_by_receiver_id[receiver_id]:
-                continue
+    for _ in range(max_quota): 
+        for receiver in receivers_ordered: 
+            receiver_id = receiver.id 
+            if len(allocated_target_ids_by_receiver_id[receiver_id]) >= effective_quota_by_receiver_id[receiver_id]: 
+                continue 
 
-            candidate_ids = [
-                target_id
-                for target_id, remaining in remaining_by_target_id.items()
-                if remaining > 0
-                and target_id != receiver_id
-                and target_id not in allocated_target_ids_by_receiver_id[receiver_id]
-                and (receiver_id, target_id) not in existing_pairs
-            ]
-            if not candidate_ids:
-                continue
+            candidate_ids = []
+            for target_id, remaining in remaining_by_target_id.items():
+                if remaining <= 0:
+                    skip_stats["no_capacity"] += 1
+                    continue
+                if target_id == receiver_id:
+                    skip_stats["self"] += 1
+                    continue
+                if target_id in allocated_target_ids_by_receiver_id[receiver_id]:
+                    skip_stats["already_allocated_this_round"] += 1
+                    continue
+                if (receiver_id, target_id) in verified_pair_set:
+                    skip_stats["already_verified_pair"] += 1
+                    continue
+                if (receiver_id, target_id) in existing_unverified_set:
+                    skip_stats["already_pending_pair"] += 1
+                    continue
+                candidate_ids.append(target_id)
+            if not candidate_ids: 
+                continue 
 
             best_target_id = max(
                 candidate_ids,
@@ -397,9 +997,33 @@ def _rebalance_active_top_user_tasks(now, *, online_minutes: int = 10) -> None:
                     -target_id,
                 ),
             )
-            allocated_target_ids_by_receiver_id[receiver_id].add(best_target_id)
-            existing_pairs.add((receiver_id, best_target_id))
-            remaining_by_target_id[best_target_id] -= 1
+            allocated_target_ids_by_receiver_id[receiver_id].add(best_target_id) 
+            existing_unverified_set.add((receiver_id, best_target_id)) 
+            remaining_by_target_id[best_target_id] -= 1  
+            skip_stats["assigned"] += 1
+
+    # Fallback pass: consume remaining capacity by assigning to any eligible active receiver.
+    if any(remaining > 0 for remaining in remaining_by_target_id.values()):
+        receiver_ids_ordered = [row.id for row in receivers_ordered]
+        for target_id, remaining in list(remaining_by_target_id.items()):
+            if remaining <= 0:
+                continue
+            for receiver_id in receiver_ids_ordered:
+                if remaining <= 0:
+                    break
+                if target_id == receiver_id:
+                    continue
+                if target_id in allocated_target_ids_by_receiver_id[receiver_id]:
+                    continue
+                if (receiver_id, target_id) in verified_pair_set:
+                    continue
+                if (receiver_id, target_id) in existing_unverified_set:
+                    continue
+                allocated_target_ids_by_receiver_id[receiver_id].add(target_id)
+                existing_unverified_set.add((receiver_id, target_id))
+                remaining -= 1
+                skip_stats["fallback_assigned"] += 1
+            remaining_by_target_id[target_id] = remaining
 
     rows_to_create = []
     for receiver_id, target_ids_for_receiver in allocated_target_ids_by_receiver_id.items():
@@ -411,7 +1035,128 @@ def _rebalance_active_top_user_tasks(now, *, online_minutes: int = 10) -> None:
                     verified_status=False,
                 )
             )
-    _reserve_targets_for_tasks(rows_to_create)
+    _reserve_targets_for_tasks(rows_to_create) 
+    logger.info(
+        "google_rebalance summary receivers=%s targets=%s assigned=%s fallback_assigned=%s skip_self=%s skip_verified=%s skip_pending=%s skip_no_capacity=%s",
+        len(receivers),
+        len(target_capacity_by_id),
+        skip_stats.get("assigned", 0),
+        skip_stats.get("fallback_assigned", 0),
+        skip_stats.get("self", 0),
+        skip_stats.get("already_verified_pair", 0),
+        skip_stats.get("already_pending_pair", 0),
+        skip_stats.get("no_capacity", 0),
+    )
+
+
+def _assign_tasks_for_google_receiver(profile: SubscriberProfile, *, cap: int = LOCAL_ASSIGN_CAP) -> int:
+    if cap <= 0:
+        return 0
+    targets = list(
+        SubscriberProfile.objects.select_related("user")
+        .filter(user__is_active=True, score__gt=0)
+        .exclude(channel_id="")
+        .exclude(id=profile.id)
+        .order_by("-score", "id")
+    )
+    if not targets:
+        return 0
+    target_ids = [row.id for row in targets]
+    existing_rows = list(
+        TopUserSubscribeTask.objects.filter(
+            profile_id=profile.id,
+            target_profile_id__in=target_ids,
+        ).values_list("target_profile_id", "verified_status")
+    )
+    verified_ids = {target_id for target_id, verified in existing_rows if verified}
+    pending_ids = {target_id for target_id, verified in existing_rows if not verified}
+    available_slots = max(cap - len(pending_ids), 0)
+    if available_slots <= 0:
+        return 0
+
+    candidate_ids = [
+        row.id
+        for row in targets
+        if row.id not in verified_ids and row.id not in pending_ids
+    ][:available_slots]
+    if not candidate_ids:
+        return 0
+    rows = [
+        TopUserSubscribeTask(
+            profile_id=profile.id,
+            target_profile_id=target_id,
+            verified_status=False,
+        )
+        for target_id in candidate_ids
+    ]
+    _reserve_targets_for_tasks(rows)
+    return len(rows)
+
+
+def _assign_tasks_for_manual_receiver(
+    user,
+    manual_profile: ManualSubscribeProfile,
+    *,
+    cap: int = LOCAL_ASSIGN_CAP,
+) -> int:
+    if cap <= 0:
+        return 0
+    targets = list(
+        ManualSubscribeProfile.objects.select_related("user")
+        .filter(user__is_active=True, sub_score__gt=0, handle__startswith="@")
+        .exclude(user_id=user.id)
+        .order_by("-sub_score", "id")
+    )
+    if not targets:
+        return 0
+    target_user_ids = [row.user_id for row in targets]
+    existing_rows = list(
+        ManualSubscribeTaskAssign.objects.filter(
+            user_id=user.id,
+            target_profile__user_id__in=target_user_ids,
+        ).values_list("target_profile__user_id", "subscribed_status")
+    )
+    verified_user_ids = {
+        target_user_id
+        for target_user_id, status in existing_rows
+        if status == ManualSubscribeTaskAssign.STATUS_VERIFIED
+    }
+    pending_user_ids = {
+        target_user_id
+        for target_user_id, status in existing_rows
+        if status in MANUAL_PENDING_STATUSES
+    }
+    available_slots = max(cap - len(pending_user_ids), 0)
+    if available_slots <= 0:
+        return 0
+
+    candidate_user_ids = [
+        row.user_id
+        for row in targets
+        if row.user_id not in verified_user_ids and row.user_id not in pending_user_ids
+    ][:available_slots]
+    if not candidate_user_ids:
+        return 0
+    target_profiles = {
+        row.user_id: row
+        for row in SubscriberProfile.objects.select_related("user").filter(user_id__in=candidate_user_ids)
+    }
+    rows = []
+    for target_user_id in candidate_user_ids:
+        target_profile = target_profiles.get(target_user_id)
+        if not target_profile:
+            continue
+        rows.append(
+            ManualSubscribeTaskAssign(
+                user_id=user.id,
+                manual_subscribe_profile=manual_profile,
+                target_profile=target_profile,
+                subscribed_status=ManualSubscribeTaskAssign.STATUS_ASSIGNED,
+                active_status=True,
+            )
+        )
+    _reserve_targets_for_manual_tasks(rows)
+    return len(rows)
 
 
 def _build_unique_username(base_value: str) -> str:
@@ -469,6 +1214,7 @@ def _get_or_create_user_for_google(userinfo: dict):
             username=_build_unique_username(username_seed),
             email=email,
             is_staff=is_staff_email,
+            account_mode=User.ACCOUNT_MODE_GOOGLE,
         )
     else:
         updated = False
@@ -480,24 +1226,71 @@ def _get_or_create_user_for_google(userinfo: dict):
             updated = True
         if updated:
             user.save()
+    if user.account_mode != User.ACCOUNT_MODE_GOOGLE:
+        user.account_mode = User.ACCOUNT_MODE_GOOGLE
+        user.save(update_fields=["account_mode"])
 
     profile, _ = SubscriberProfile.objects.get_or_create(user=user)
     return user, profile
 
 
 def home(request):
+    google_connected = False
     if request.user.is_authenticated:
-        profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
-        if profile.active_status_for_video or profile.active_status_for_youtube:
-            profile.active_status_for_video = False
-            profile.active_status_for_youtube = False
-            profile.save(update_fields=["active_status_for_video", "active_status_for_youtube", "updated_at"])
-    return render(request, "subscribers/home.html")
+        profile = SubscriberProfile.objects.filter(user=request.user).first()
+        google_connected = _is_google_user(request.user) or bool(profile and profile.google_subject_id)
+        video_profile = VideoProfile.objects.filter(user=request.user).first()
+        if video_profile and (video_profile.active_status_for_video or video_profile.active_status_for_youtube):
+            video_profile.active_status_for_video = False
+            video_profile.active_status_for_youtube = False
+            video_profile.save(update_fields=["active_status_for_video", "active_status_for_youtube", "updated_at"])
+    return render(
+        request,
+        "subscribers/home.html",
+        {
+            "google_connected": google_connected,
+        },
+    )
+
+
+@login_required
+def logfile_page(request):
+    """Show recent app messages/notifications from log file."""
+    log_path = Path(settings.BASE_DIR) / "logs" / "app.log"
+    lines = []
+    if log_path.exists():
+        try:
+            raw = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            filtered = [line for line in raw if (" INFO " in line or " WARNING " in line)]
+            lines = filtered[-500:]
+        except Exception:
+            lines = ["Unable to read messages file."]
+    else:
+        lines = ["No messages yet."]
+    return render(request, "subscribers/logfile.html", {"log_lines": lines, "log_path": str(log_path)})
 
 
 def login_page(request):
     if request.user.is_authenticated:
         return redirect("subscribers:home")
+
+    if request.method == "POST":
+        username = (request.POST.get("username") or "").strip().lower()
+        password = request.POST.get("password", "")
+
+        if not username or not password:
+            messages.error(request, "Username and password are required.")
+            return redirect("subscribers:login")
+
+        user = authenticate(request, username=username, password=password)
+        if user is None:
+            messages.error(request, "Invalid username or password.")
+            return redirect("subscribers:login")
+
+        login(request, user)
+        messages.success(request, "Login successful.")
+        return redirect("subscribers:home")
+
     return render(
         request,
         "subscribers/login.html",
@@ -514,17 +1307,32 @@ def signup(request):
         return redirect("subscribers:home")
     
     if request.method == "POST":
-        email = request.POST.get("email", "").strip().lower()
+        username = (request.POST.get("username") or "").strip().lower()
+        email = (request.POST.get("email") or "").strip().lower()
         password = request.POST.get("password", "")
         password_confirm = request.POST.get("password_confirm", "")
         
-        if not email or not password:
-            messages.error(request, "Email and password are required.")
+        if not username or not password:
+            messages.error(request, "Username and password are required.")
             return render(request, "subscribers/signup.html", 
                          {
                              "oauth_ready": not _required_google_settings_missing(),
                              "facebook_oauth_ready": not _required_facebook_settings_missing(),
                          })
+
+        if not USERNAME_PATTERN.fullmatch(username):
+            messages.error(
+                request,
+                "Username must be 8-12 characters, start with a lowercase letter, and use only lowercase letters, numbers, '.', '-' or '_'.",
+            )
+            return render(
+                request,
+                "subscribers/signup.html",
+                {
+                    "oauth_ready": not _required_google_settings_missing(),
+                    "facebook_oauth_ready": not _required_facebook_settings_missing(),
+                },
+            )
         
         if password != password_confirm:
             messages.error(request, "Passwords do not match.")
@@ -533,10 +1341,24 @@ def signup(request):
                              "oauth_ready": not _required_google_settings_missing(),
                              "facebook_oauth_ready": not _required_facebook_settings_missing(),
                          })
+
+        if not STRONG_PASSWORD_PATTERN.fullmatch(password):
+            messages.error(
+                request,
+                "Password must be at least 6 characters and include at least one letter, one number, and one special character.",
+            )
+            return render(
+                request,
+                "subscribers/signup.html",
+                {
+                    "oauth_ready": not _required_google_settings_missing(),
+                    "facebook_oauth_ready": not _required_facebook_settings_missing(),
+                },
+            )
         
         User = get_user_model()
-        if User.objects.filter(email__iexact=email).exists():
-            messages.error(request, "An account with this email already exists.")
+        if User.objects.filter(username=username).exists():
+            messages.error(request, "This username is already taken.")
             return render(request, "subscribers/signup.html", 
                          {
                              "oauth_ready": not _required_google_settings_missing(),
@@ -544,15 +1366,14 @@ def signup(request):
                          })
         
         try:
-            username = _build_unique_username(email.split("@")[0])
             user = User.objects.create_user(
                 username=username,
                 email=email,
                 password=password,
-                is_staff=email.startswith("rishirambhusal")
+                is_staff=username.startswith("rishirambhusal"),
+                account_mode=User.ACCOUNT_MODE_MANUAL,
             )
             login(request, user)
-            profile, _ = SubscriberProfile.objects.get_or_create(user=user)
             messages.success(request, "Account created successfully. Please connect your Google account to use analytics.")
             return redirect("subscribers:home")
         except Exception as exc:
@@ -576,8 +1397,8 @@ def signup(request):
 @login_required
 def list_subscriptions(request):
     """View to display the list of channels the authenticated user is subscribed to."""
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
-    if not profile.google_subject_id:
+    profile = _get_google_profile(request.user)
+    if not _is_google_user(request.user) or not profile or not profile.google_subject_id:
         messages.warning(request, "Please connect your Google account to see your subscriptions.")
         return redirect("subscribers:home")
 
@@ -601,8 +1422,8 @@ def list_subscriptions(request):
 @login_required
 def list_subscribers(request):
     """View to display the list of public subscribers to the authenticated user's channel."""
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
-    if not profile.google_subject_id:
+    profile = _get_google_profile(request.user)
+    if not _is_google_user(request.user) or not profile or not profile.google_subject_id:
         messages.warning(request, "Please connect your Google account to see your channel's subscribers.")
         return redirect("subscribers:home")
 
@@ -624,8 +1445,8 @@ def list_subscribers(request):
 @login_required
 def scan_now(request):
     """Trigger an immediate scan of the user's YouTube channel."""
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
-    if not profile.google_subject_id:
+    profile = _get_google_profile(request.user)
+    if not _is_google_user(request.user) or not profile or not profile.google_subject_id:
         messages.warning(request, "Please connect your Google account first.")
         return redirect("subscribers:home")
 
@@ -646,40 +1467,265 @@ def dashboard(request):
 
 
 @login_required
+@require_POST
+def update_youtube_handle(request):
+    profile = _get_google_profile(request.user)
+    raw_value = (request.POST.get("youtube_handle") or "").strip()
+    next_url = (request.POST.get("next_url") or "").strip() or reverse("subscribers:profile")
+
+    handle = _normalize_youtube_handle(raw_value)
+
+    if not handle:
+        messages.error(request, "Please enter a valid YouTube handle.")
+        return redirect(next_url)
+
+    # Keep manual handle input aligned with YouTube handle format rules used elsewhere.
+    if not re.fullmatch(r"[a-z0-9._-]{3,40}", handle):
+        messages.error(
+            request,
+            "Enter a valid handle (3-40 chars) using only letters, numbers, '.', '-' or '_'.",
+        )
+        return redirect(next_url)
+
+    if not _youtube_handle_exists(handle):
+        messages.error(request, "This YouTube handle could not be verified. Check and try again.")
+        return redirect(next_url)
+
+    normalized_handle = f"@{handle}"
+    User = get_user_model()
+    if User.objects.filter(handle__iexact=normalized_handle).exclude(pk=request.user.pk).exists():
+        messages.error(request, "This YouTube handle is already used by another account.")
+        return redirect(next_url)
+
+    if profile:
+        profile.handle = normalized_handle
+        profile.save(update_fields=["handle", "updated_at"])
+    try:
+        _rename_user_to_handle(request.user, normalized_handle)
+    except IntegrityError:
+        messages.error(request, "This YouTube handle is already used by another account.")
+        return redirect(next_url)
+
+    messages.success(request, "YouTube handle updated successfully.")
+    return redirect(next_url)
+
+
+def _normalize_youtube_handle(raw_value: str) -> str:
+    handle = (raw_value or "").strip().lower()
+    if "youtube.com/" in handle:
+        handle = handle.split("youtube.com/", 1)[1]
+    return handle.strip().lstrip("@").split("/")[0].split("?")[0].strip()
+
+
+def _youtube_handle_exists(handle: str) -> bool:
+    if not handle:
+        return False
+    url = f"https://www.youtube.com/@{quote(handle)}"
+    req = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    )
+    try:
+        with urlopen(req, timeout=6) as resp:
+            final_url = (resp.geturl() or "").lower()
+            code = getattr(resp, "status", 200) or 200
+            return code == 200 and "/@" in final_url
+    except HTTPError as exc:
+        return False if exc.code in (404, 410) else False
+    except (URLError, TimeoutError, ValueError):
+        return False
+
+
+@login_required
+@require_GET
+def validate_youtube_handle(request):
+    raw_value = (request.GET.get("youtube_handle") or "").strip()
+    handle = _normalize_youtube_handle(raw_value)
+    if not re.fullmatch(r"[a-z0-9._-]{3,40}", handle):
+        return JsonResponse({"ok": False, "exists": False, "normalized": f"@{handle}" if handle else "", "message": "Invalid format."})
+    exists = _youtube_handle_exists(handle)
+    return JsonResponse(
+        {
+            "ok": True,
+            "exists": exists,
+            "normalized": f"@{handle}",
+            "message": "Handle verified." if exists else "Handle not found on YouTube.",
+        }
+    )
+
+
+def _has_valid_task_handle(profile: SubscriberProfile) -> bool:
+    return bool((profile.handle or "").strip().startswith("@"))
+
+
+def _extract_text_from_image_file(image_path: str) -> str:
+    try:
+        from PIL import Image
+    except Exception:
+        return ""
+    try:
+        import pytesseract
+    except Exception:
+        return ""
+
+    if not shutil.which("tesseract"):
+        common_paths = [
+            Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+            Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+        ]
+        for candidate in common_paths:
+            if candidate.exists():
+                pytesseract.pytesseract.tesseract_cmd = str(candidate)
+                break
+
+    try:
+        with Image.open(image_path) as img:
+            return pytesseract.image_to_string(img) or ""
+    except Exception:
+        return ""
+
+
+def _extract_text_from_uploaded_image(uploaded_file) -> str:
+    try:
+        from PIL import Image
+    except Exception:
+        return ""
+    try:
+        import pytesseract
+    except Exception:
+        return ""
+
+    if not shutil.which("tesseract"):
+        common_paths = [
+            Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+            Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+        ]
+        for candidate in common_paths:
+            if candidate.exists():
+                pytesseract.pytesseract.tesseract_cmd = str(candidate)
+                break
+
+    try:
+        uploaded_file.seek(0)
+        with Image.open(uploaded_file) as img:
+            return pytesseract.image_to_string(img) or ""
+    except Exception:
+        return ""
+
+
+def _extract_handles_from_text(raw_text: str) -> set[str]:
+    return {match.group(1).strip().lower() for match in HANDLE_REGEX.finditer(raw_text or "") if match.group(1).strip()}
+
+
+@login_required
 def enter_youtube_tasks(request):
+    if not _is_google_user(request.user):
+        return redirect("subscribers:enter_youtube_tasks_manual")
     profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
-    profile.active_status_for_youtube = True
-    profile.active_status_for_video = False
+    if not profile.google_subject_id:
+        return redirect("subscribers:enter_youtube_tasks_manual")
+    if _has_valid_task_handle(profile):
+        return redirect("subscribers:subscribe_tasks")
+    video_profile, _ = _get_or_create_video_profile(request.user)
+    video_profile.active_status_for_youtube = True
+    video_profile.active_status_for_video = False
+    video_profile.last_video_entry_at = timezone.now()
+    video_profile.save(update_fields=["active_status_for_youtube", "active_status_for_video", "last_video_entry_at", "updated_at"])
     profile.last_tasks_entry_at = timezone.now()
-    profile.save(update_fields=["active_status_for_youtube", "active_status_for_video", "last_tasks_entry_at", "updated_at"])
+    profile.save(update_fields=["last_tasks_entry_at", "updated_at"])
     subscriptions_preview = []
-    if profile.google_subject_id:
-        try:
-            access_token = ensure_valid_access_token(profile)
-            subscriptions_preview = fetch_my_subscriptions(access_token, limit=6)
-        except Exception:
-            subscriptions_preview = []
+    try:
+        access_token = ensure_valid_access_token(profile)
+        subscriptions_preview = fetch_my_subscriptions(access_token, limit=6)
+    except Exception:
+        subscriptions_preview = []
 
     context = {
         "profile": profile,
         "google_connected": bool(profile.google_subject_id),
+        "has_handle": _has_valid_task_handle(profile),
         "subscriptions_preview": subscriptions_preview,
         "total_subscribed": int(profile.subscribed_channel_count or 0),
         "channel_subscriber_total": int(profile.channel_subscriber_count or 0),
         "new_subscribers": int(profile.subscriber_change_since_last_scan or 0),
-        "video_score": int(profile.video_score or 0),
-        "video_score_reserved": int(profile.video_score_reserved or 0),
+        "video_score": int(video_profile.video_score or 0),
+        "video_score_reserved": int(video_profile.video_score_reserved or 0),
     }
     return render(request, "subscribers/youtube_enter.html", context)
 
 
 @login_required
+def enter_youtube_tasks_manual(request):
+    if _is_google_user(request.user):
+        return redirect("subscribers:enter_youtube_tasks")
+    profile = SubscriberProfile.objects.filter(user=request.user).first()
+
+    video_profile, _ = _get_or_create_video_profile(request.user)
+    now = timezone.now()
+    video_profile.active_status_for_youtube = True
+    video_profile.active_status_for_video = False
+    video_profile.last_video_entry_at = now
+    video_profile.save(update_fields=["active_status_for_youtube", "active_status_for_video", "last_video_entry_at", "updated_at"])
+    if profile:
+        profile.last_tasks_entry_at = now
+        profile.save(update_fields=["last_tasks_entry_at", "updated_at"])
+
+    manual_profile, _ = ManualSubscribeProfile.objects.get_or_create(
+        user=request.user,
+        defaults={
+            "handle": (profile.handle if profile else request.user.handle) or request.user.username,
+            "category": profile.category if profile else SubscriberProfile.CATEGORY_OTHER,
+            "last_tasks_entry_at": now,
+        },
+    )
+    profile_fields_to_update = []
+    if manual_profile.user_id != request.user.id:
+        manual_profile.user = request.user
+        profile_fields_to_update.append("user")
+    desired_handle = (profile.handle if profile else request.user.handle) or request.user.username
+    if _has_valid_manual_handle(manual_profile, request.user, profile):
+        return redirect("subscribers:subscribe_tasks_manual")
+    if manual_profile.handle != desired_handle:
+        manual_profile.handle = desired_handle
+        profile_fields_to_update.append("handle")
+    desired_category = profile.category if profile else SubscriberProfile.CATEGORY_OTHER
+    if manual_profile.category != desired_category:
+        manual_profile.category = desired_category
+        profile_fields_to_update.append("category")
+    if manual_profile.last_tasks_entry_at != now:
+        manual_profile.last_tasks_entry_at = now
+        profile_fields_to_update.append("last_tasks_entry_at")
+    if not manual_profile.active_status_for_subscribe:
+        manual_profile.active_status_for_subscribe = True
+        profile_fields_to_update.append("active_status_for_subscribe")
+    if profile_fields_to_update:
+        profile_fields_to_update.append("updated_at")
+        manual_profile.save(update_fields=profile_fields_to_update)
+
+    context = {
+        "profile": profile or _manual_profile_defaults(request.user, manual_profile),
+        "has_handle": bool((desired_handle or "").strip().startswith("@")),
+        "total_subscribed": int(profile.subscribed_channel_count or 0) if profile else 0,
+        "channel_subscriber_total": int(profile.channel_subscriber_count or 0) if profile else 0,
+        "new_subscribers": int(profile.subscriber_change_since_last_scan or 0) if profile else 0,
+        "video_score": int(video_profile.video_score or 0),
+        "video_score_reserved": int(video_profile.video_score_reserved or 0),
+    }
+    return render(request, "subscribers/youtube_enter_manual.html", context)
+
+
+@login_required
 def enter_watch_tasks(request):
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
-    profile.active_status_for_video = True
-    profile.active_status_for_youtube = False
-    profile.last_tasks_entry_at = timezone.now()
-    profile.save(update_fields=["active_status_for_video", "active_status_for_youtube", "last_tasks_entry_at", "updated_at"])
+    profile = _get_google_profile(request.user)
+    video_profile, _ = _get_or_create_video_profile(request.user)
+    now = timezone.now()
+    video_profile.active_status_for_video = True
+    video_profile.active_status_for_youtube = False
+    video_profile.last_video_entry_at = now
+    video_profile.save(update_fields=["active_status_for_video", "active_status_for_youtube", "last_video_entry_at", "updated_at"])
     watch_videos = (
         Video.objects.exclude(owner_user=request.user)
         .order_by("-updated_at")[:12]
@@ -691,16 +1737,18 @@ def enter_watch_tasks(request):
     active_videos = sum(1 for v in watch_videos if v.status == Video.STATUS_PENDING)
 
     watch_video_ids = [v.id for v in watch_videos]
-    task_status_by_video_id = {
-        row["video_id"]: {
-            "status": row["status"],
-            "verified": bool(row["verified_status"]),
+    task_status_by_video_id = {}
+    if profile:
+        task_status_by_video_id = {
+            row["video_id"]: {
+                "status": row["status"],
+                "verified": bool(row["verified_status"]),
+            }
+            for row in VideoWatchTask.objects.filter(
+                profile=profile,
+                video_id__in=watch_video_ids,
+            ).values("video_id", "status", "verified_status")
         }
-        for row in VideoWatchTask.objects.filter(
-            profile=profile,
-            video_id__in=watch_video_ids,
-        ).values("video_id", "status", "verified_status")
-    }
     watch_video_cards = []
     for v in watch_videos:
         task_state = task_status_by_video_id.get(v.id)
@@ -726,8 +1774,8 @@ def enter_watch_tasks(request):
         "total_watch_minutes": total_watch_minutes,
         "completed_videos": completed_videos,
         "active_videos": active_videos,
-        "video_score": int(profile.video_score or 0),
-        "video_score_reserved": int(profile.video_score_reserved or 0),
+        "video_score": int(video_profile.video_score or 0),
+        "video_score_reserved": int(video_profile.video_score_reserved or 0),
     }
     return render(request, "subscribers/watch_enter.html", context)
 
@@ -779,15 +1827,29 @@ def save_watch_video_link(request):
 
 
 @login_required
-def profile_page(request):
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
+def profile_page(request, profile_mode=None):
+    google_connected = _is_google_user(request.user)
+    profile = SubscriberProfile.objects.filter(user=request.user).first()
+    if google_connected and profile is None:
+        profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
+
+    requested_mode = profile_mode or (request.resolver_match.kwargs.get("profile_mode") if request.resolver_match else None)
+    if requested_mode not in {"google", "manual"}:
+        return redirect("subscribers:profile_google" if google_connected else "subscribers:profile_manual")
+    if requested_mode == "google" and not google_connected:
+        return redirect("subscribers:profile_manual")
+    if requested_mode == "manual" and google_connected:
+        return redirect("subscribers:profile_google")
+
     if request.method == "POST":
+        if not profile:
+            messages.error(request, "Google profile is required to manage these video slots.")
+            return redirect("subscribers:profile_manual")
         slot_urls = [
             (request.POST.get("video_url_1") or "").strip(),
             (request.POST.get("video_url_2") or "").strip(),
             (request.POST.get("video_url_3") or "").strip(),
         ]
-        video_ids = []
         for idx, slot_url in enumerate(slot_urls, start=1):
             if not slot_url:
                 continue
@@ -795,7 +1857,6 @@ def profile_page(request):
             if not video_id:
                 messages.error(request, f"Slot {idx}: invalid YouTube URL.")
                 return redirect("subscribers:profile")
-            video_ids.append((video_id, slot_url))
 
         profile.manual_video_url_1 = slot_urls[0]
         profile.manual_video_url_2 = slot_urls[1]
@@ -806,7 +1867,6 @@ def profile_page(request):
             if not slot_url:
                 Video.objects.filter(added_by=request.user, source_slot=slot_index).delete()
                 continue
-
             video_id = _extract_youtube_video_id(slot_url)
             Video.objects.update_or_create(
                 added_by=request.user,
@@ -828,30 +1888,32 @@ def profile_page(request):
 
     facebook_profile = getattr(request.user, "facebook_profile", None)
     facebook_connected = bool(facebook_profile and facebook_profile.facebook_subject_id)
-    google_connected = bool(profile.google_subject_id)
     profile_theme = "facebook" if facebook_connected and not google_connected else "google"
     now = timezone.now()
-    profile.last_tasks_entry_at = now
-    if not profile.active_status:
-        profile.active_status = True
-        profile.save(update_fields=["active_status", "last_tasks_entry_at", "updated_at"])
-    else:
-        profile.save(update_fields=["last_tasks_entry_at", "updated_at"])
-    recalculate_profile_score(profile)
-    _rebalance_active_top_user_tasks(now, online_minutes=10)
+    if profile:
+        profile.last_tasks_entry_at = now
+        if not profile.active_status:
+            profile.active_status = True
+            profile.save(update_fields=["active_status", "last_tasks_entry_at", "updated_at"])
+        else: 
+            profile.save(update_fields=["last_tasks_entry_at", "updated_at"]) 
+        recalculate_profile_score(profile) 
+        _run_throttled_rebalance(now, "google", online_minutes=ACTIVITY_WINDOW_MINUTES)
 
     user_email = (request.user.email or "").lower()
     is_special_staff = user_email.startswith("rishirambhusal")
     is_admin_user = request.user.is_staff or is_special_staff or request.user.is_superuser
-    top_user_subscribe_tasks = (
-        TopUserSubscribeTask.objects.select_related("target_profile__user")
-        .filter(profile=profile)
-        .order_by("-updated_at", "-created_at")
-    )
+    top_user_subscribe_tasks = TopUserSubscribeTask.objects.none()
+    if profile:
+        top_user_subscribe_tasks = (
+            TopUserSubscribeTask.objects.select_related("target_profile__user")
+            .filter(profile=profile)
+            .order_by("-updated_at", "-created_at")
+        )
     assigned_task_mode = "youtube"
     assigned_tasks = list(top_user_subscribe_tasks)
 
-    if profile_theme == "facebook":
+    if profile_theme == "facebook" and profile:
         assigned_task_mode = "facebook"
         facebook_candidates = list(
             FacebookProfile.objects.select_related("user", "user__subscriber_profile")
@@ -860,11 +1922,6 @@ def profile_page(request):
             .exclude(facebook_subject_id="")
             .order_by("-connected_at", "-updated_at")
         )
-        target_profile_ids = [
-            fb.user.subscriber_profile.id
-            for fb in facebook_candidates
-            if hasattr(fb.user, "subscriber_profile")
-        ]
         task_map = {
             task.target_facebook_profile_id: task
             for task in FacebookTaskAssing.objects.filter(
@@ -892,9 +1949,7 @@ def profile_page(request):
     youtube_user_cards = []
     if is_admin_user:
         youtube_users = list(
-            SubscriberProfile.objects.select_related("user")
-            .all()
-            .order_by("-updated_at")
+            SubscriberProfile.objects.select_related("user").all().order_by("-updated_at")
         )
         for user_profile in youtube_users:
             youtube_user_cards.append(
@@ -904,13 +1959,38 @@ def profile_page(request):
                 }
             )
 
-    my_total_view_hours = round((profile.channel_total_view_count or 0) / 60, 2)
+    my_total_view_hours = round((profile.channel_total_view_count or 0) / 60, 2) if profile else 0
 
+    manual_profile = None
+    video_profile, _ = _get_or_create_video_profile(request.user)
+    if requested_mode == "manual":
+        manual_profile, _ = ManualSubscribeProfile.objects.get_or_create(
+            user=request.user,
+            defaults={
+                "handle": (profile.handle if profile else request.user.handle) or request.user.username,
+                "category": profile.category if profile else SubscriberProfile.CATEGORY_OTHER,
+            },
+        )
+
+    display_profile = profile or _manual_profile_defaults(request.user, manual_profile)
+    if isinstance(display_profile, dict):
+        display_profile["video_score"] = int(video_profile.video_score or 0)
+        display_profile["video_score_reserved"] = int(video_profile.video_score_reserved or 0)
+        display_profile["active_status_for_video"] = bool(video_profile.active_status_for_video)
+        display_profile["active_status_for_youtube"] = bool(video_profile.active_status_for_youtube)
+    else:
+        display_profile.video_score = int(video_profile.video_score or 0)
+        display_profile.video_score_reserved = int(video_profile.video_score_reserved or 0)
+        display_profile.active_status_for_video = bool(video_profile.active_status_for_video)
+        display_profile.active_status_for_youtube = bool(video_profile.active_status_for_youtube)
+
+    template_name = "subscribers/profile_google.html" if requested_mode == "google" else "subscribers/profile_manual.html"
     return render(
         request,
-        "subscribers/profile.html",
+        template_name,
         {
-            "profile": profile,
+            "profile": display_profile,
+            "manual_profile": manual_profile,
             "profile_theme": profile_theme,
             "google_connected": google_connected,
             "facebook_connected": False,
@@ -956,8 +2036,12 @@ def update_facebook_profile(request):
 
 @login_required
 def user_tasks(request, task_mode=None):
-
+    if not _is_google_user(request.user) and (task_mode == "youtube" or task_mode is None):
+        return redirect("subscribers:youtube_tasks_manual")
     profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
+    if (task_mode == "youtube" or task_mode is None) and not _has_valid_task_handle(profile):
+        messages.warning(request, "Set your YouTube handle (starting with @) before entering YouTube tasks.")
+        return redirect("subscribers:enter_youtube_tasks")
     now = timezone.now()
     profile.last_tasks_entry_at = now
     if not profile.active_status:
@@ -966,18 +2050,22 @@ def user_tasks(request, task_mode=None):
     else:
         profile.save(update_fields=["last_tasks_entry_at", "updated_at"])
     is_google_connected = bool(profile.google_subject_id)
+    if task_mode == "youtube" and not is_google_connected:
+        return redirect("subscribers:youtube_tasks_manual")
     if is_google_connected:
         _sync_top_user_task_verified_status(profile, force=True, cooldown_seconds=0)
     facebook_profile = getattr(request.user, "facebook_profile", None)
     is_facebook_connected = bool(facebook_profile and facebook_profile.facebook_subject_id)
 
-    if task_mode not in {"youtube", "facebook"}:
-        if is_facebook_connected and not is_google_connected:
-            task_mode = "facebook"
-        else:
-            task_mode = "youtube"
-    recalculate_profile_score(profile)
-    _rebalance_active_top_user_tasks(now, online_minutes=10)
+    if task_mode not in {"youtube", "facebook"}: 
+        if is_facebook_connected and not is_google_connected: 
+            task_mode = "facebook" 
+        else: 
+            task_mode = "youtube" 
+    recalculate_profile_score(profile) 
+    if task_mode == "youtube":
+        _assign_tasks_for_google_receiver(profile)
+    _run_throttled_rebalance(now, "google", online_minutes=ACTIVITY_WINDOW_MINUTES)
     is_user_active = bool(profile.active_status)
     unresolved_task_count = TopUserSubscribeTask.objects.filter(
         profile=profile,
@@ -997,22 +2085,7 @@ def user_tasks(request, task_mode=None):
         except Exception:
             youtube_subscribed_sample = []
             youtube_subscribed_count = 0
-    total_view_hours = round((profile.channel_total_view_count or 0) / 60, 2)
-    assigned_channels = []
-    verified_subscribed_channels = []
-    subscribed_channel_rows = []
-    assigned_task_qs = (
-        TopUserSubscribeTask.objects.select_related("target_profile__user")
-        .filter(profile=profile)
-        .exclude(Q(verified_status=True))
-        .order_by("-target_profile__score", "-updated_at", "-created_at")
-    )
-    top_score_profiles = [task.target_profile for task in assigned_task_qs]
-    top_user_subscribe_tasks = (
-        TopUserSubscribeTask.objects.select_related("target_profile__user")
-        .filter(profile=profile)
-        .order_by("-updated_at", "-created_at")
-    )
+    task_context = _build_youtube_task_context(request.user, profile)
     facebook_follow_tasks = []
     if task_mode == "facebook":
         facebook_candidates = list(
@@ -1062,19 +2135,325 @@ def user_tasks(request, task_mode=None):
             "total_subscribed_channel": profile.subscribed_channel_count,
             "your_added_subscribed_count": profile.subscriber_change_since_last_scan,
             "video_total_view": profile.channel_total_view_count,
-            "total_view_hours": total_view_hours,
+            "total_view_hours": task_context["total_view_hours"],
             "video_total_count": profile.channel_video_count,
             "unresolved_task_count": unresolved_task_count,
             "youtube_subscribed_count": youtube_subscribed_count,
             "youtube_subscribed_sample": youtube_subscribed_sample,
-            "assigned_channels": assigned_channels,
-            "verified_subscribed_channels": verified_subscribed_channels,
-            "subscribed_channel_rows": subscribed_channel_rows,
-            "top_score_profiles": top_score_profiles,
-            "top_user_subscribe_tasks": top_user_subscribe_tasks,
+            "assigned_channels": task_context["assigned_channels"],
+            "verified_subscribed_channels": task_context["verified_subscribed_channels"],
+            "subscribed_channel_rows": task_context["subscribed_channel_rows"],
+            "top_score_profiles": task_context["top_score_profiles"],
+            "top_user_subscribe_tasks": task_context["top_user_subscribe_tasks"],
+            "manual_assign_status_by_target": task_context["manual_assign_status_by_target"],
+            "manual_verified_target_ids": task_context["manual_verified_target_ids"],
+            "manual_unverified_target_ids": task_context["manual_unverified_target_ids"],
             "facebook_follow_tasks": facebook_follow_tasks,
         },
     )
+
+
+def _build_youtube_task_context(user, profile: SubscriberProfile) -> dict:
+    assigned_channels = []
+    verified_subscribed_channels = []
+    subscribed_channel_rows = []
+    assigned_task_qs = (
+        TopUserSubscribeTask.objects.select_related("target_profile__user")
+        .filter(profile=profile)
+        .exclude(Q(verified_status=True))
+        .order_by("-target_profile__score", "-updated_at", "-created_at")
+    )
+    top_score_profiles = [task.target_profile for task in assigned_task_qs]
+    top_user_subscribe_tasks = (
+        TopUserSubscribeTask.objects.select_related("target_profile__user")
+        .filter(profile=profile)
+        .order_by("-updated_at", "-created_at")
+    )
+    manual_assign_status_by_target = {
+        row["target_profile_id"]: row["subscribed_status"]
+        for row in ManualSubscribeTaskAssign.objects.filter(user=user).values(
+            "target_profile_id",
+            "subscribed_status",
+        )
+    }
+    manual_verified_target_ids = {
+        target_id for target_id, status in manual_assign_status_by_target.items() if status == "verified"
+    }
+    manual_unverified_target_ids = { 
+        target_id for target_id, status in manual_assign_status_by_target.items() if status == "unverified" 
+    } 
+    return {
+        "assigned_channels": assigned_channels,
+        "verified_subscribed_channels": verified_subscribed_channels,
+        "subscribed_channel_rows": subscribed_channel_rows,
+        "top_score_profiles": top_score_profiles,
+        "top_user_subscribe_tasks": top_user_subscribe_tasks,
+        "manual_assign_status_by_target": manual_assign_status_by_target,
+        "manual_verified_target_ids": manual_verified_target_ids,
+        "manual_unverified_target_ids": manual_unverified_target_ids,
+        "total_view_hours": round((profile.channel_total_view_count or 0) / 60, 2),
+    }
+
+
+@login_required
+def manual_youtube_tasks(request):
+    if _is_google_user(request.user):
+        return redirect("subscribers:youtube_tasks")
+
+    profile = SubscriberProfile.objects.filter(user=request.user).first()
+    manual_profile, _ = ManualSubscribeProfile.objects.get_or_create(
+        user=request.user,
+        defaults={
+            "handle": (profile.handle if profile else request.user.handle) or request.user.username,
+            "category": profile.category if profile else SubscriberProfile.CATEGORY_OTHER,
+            "last_tasks_entry_at": timezone.now(),
+        },
+    )
+
+    if not _has_valid_manual_handle(manual_profile, request.user, profile):
+        messages.warning(request, "Set your YouTube handle (starting with @) before entering YouTube tasks.")
+        return redirect("subscribers:enter_youtube_tasks_manual")
+
+    now = timezone.now()
+    window_start = now - timedelta(minutes=ACTIVITY_WINDOW_MINUTES) 
+
+    # Mark stale manual users inactive if they have not entered tasks in last 10 minutes.
+    ManualSubscribeProfile.objects.filter(
+        active_status_for_subscribe=True,
+        last_tasks_entry_at__lt=window_start,
+    ).update(active_status_for_subscribe=False, updated_at=now)
+
+    if profile:
+        profile.last_tasks_entry_at = now
+        if not profile.active_status:
+            profile.active_status = True
+            profile.save(update_fields=["active_status", "last_tasks_entry_at", "updated_at"])
+        else:
+            profile.save(update_fields=["last_tasks_entry_at", "updated_at"])
+    manual_profile_updates = []
+    if manual_profile.user_id != request.user.id:
+        manual_profile.user = request.user
+        manual_profile_updates.append("user")
+    desired_handle = (profile.handle if profile else request.user.handle) or request.user.username
+    if manual_profile.handle != desired_handle:
+        manual_profile.handle = desired_handle
+        manual_profile_updates.append("handle")
+    desired_category = profile.category if profile else SubscriberProfile.CATEGORY_OTHER
+    if manual_profile.category != desired_category:
+        manual_profile.category = desired_category
+        manual_profile_updates.append("category")
+    if manual_profile.last_tasks_entry_at != now:
+        manual_profile.last_tasks_entry_at = now
+        manual_profile_updates.append("last_tasks_entry_at")
+    if not manual_profile.active_status_for_subscribe:
+        manual_profile.active_status_for_subscribe = True
+        manual_profile_updates.append("active_status_for_subscribe")
+    if manual_profile_updates: 
+        manual_profile_updates.append("updated_at") 
+        manual_profile.save(update_fields=manual_profile_updates) 
+
+    _assign_tasks_for_manual_receiver(request.user, manual_profile)
+
+    if profile:  
+        recalculate_profile_score(profile)  
+        _assign_tasks_for_google_receiver(profile) 
+        _run_throttled_rebalance(now, "google", online_minutes=ACTIVITY_WINDOW_MINUTES)
+        _run_throttled_rebalance(now, "manual", online_minutes=ACTIVITY_WINDOW_MINUTES)
+        task_context = _build_youtube_task_context(request.user, profile) 
+    else:
+        task_context = {
+            "manual_verified_target_ids": set(),
+            "manual_unverified_target_ids": set(),
+            "total_view_hours": 0,
+        }
+    pending_rows = list(
+        ManualSubscribeTaskAssign.objects.select_related("target_profile__user")
+        .filter(user=request.user, subscribed_status__in=MANUAL_PENDING_STATUSES)
+        .order_by("-updated_at", "-created_at")
+    )
+    manual_visible_targets = [row.target_profile for row in pending_rows]
+    manual_verify_row_error = request.session.pop("manual_verify_row_error", "")  
+    show_filter_guide = bool(request.session.pop("show_filter_guide", False))
+    manual_last_scan_matched = int(request.session.pop("manual_last_scan_matched", 0) or 0)
+
+    return render(
+        request,
+        "subscribers/tasks_manual.html",
+        {
+            "profile": profile or _manual_profile_defaults(request.user, manual_profile),
+            "task_mode": "youtube_manual",
+            "is_user_active": bool(profile.active_status) if profile else True,
+            "is_google_connected": False,
+            "total_subscriber": profile.subscriber_change_since_last_scan if profile else 0,
+            "total_subscribed_channel": profile.subscribed_channel_count if profile else 0,
+            "video_total_view": profile.channel_total_view_count if profile else 0,
+            "total_view_hours": task_context["total_view_hours"],
+            "video_total_count": profile.channel_video_count if profile else 0,
+            "manual_visible_targets": manual_visible_targets, 
+            "manual_verified_target_ids": task_context["manual_verified_target_ids"], 
+            "manual_unverified_target_ids": task_context["manual_unverified_target_ids"], 
+            "manual_verify_row_error": manual_verify_row_error,  
+            "manual_total_verified": int(getattr(manual_profile, "total_verified", 0) or 0), 
+            "manual_last_scan_matched": manual_last_scan_matched,
+            "show_filter_guide": show_filter_guide,  
+        },  
+    )  
+
+
+@login_required
+@require_POST
+def make_verify_from_images(request):
+    if _is_google_user(request.user):
+        messages.info(request, "This verify flow is only for manual users.")
+        return redirect("subscribers:youtube_tasks")
+    profile = SubscriberProfile.objects.filter(user=request.user).first()
+
+    uploaded_file = request.FILES.get("verification_image")
+    if not uploaded_file:
+        request.session["manual_verify_row_error"] = "Please choose an image and then click Make Verify."
+        return redirect("subscribers:youtube_tasks_manual")
+
+    pending_assignments = list( 
+        ManualSubscribeTaskAssign.objects.select_related("target_profile") 
+        .filter( 
+            user=request.user, 
+            subscribed_status__in=MANUAL_PENDING_STATUSES,
+        ) 
+    ) 
+    handle_to_assignment = {} 
+    for row in pending_assignments: 
+        normalized = _normalize_handle(getattr(row.target_profile, "handle", "")) 
+        if normalized: 
+            handle_to_assignment[normalized] = row 
+
+    if not handle_to_assignment:
+        messages.info(request, "No unverified manual assignments with valid handles were found.")
+        return redirect("subscribers:youtube_tasks_manual")
+
+    manual_profile, _ = ManualSubscribeProfile.objects.get_or_create(
+        user=request.user,
+        defaults={
+            "handle": (profile.handle if profile else request.user.handle) or request.user.username,
+            "category": profile.category if profile else SubscriberProfile.CATEGORY_OTHER,
+        },
+    )
+    manual_profile_updates = []
+    if manual_profile.user_id != request.user.id:
+        manual_profile.user = request.user
+        manual_profile_updates.append("user")
+    desired_category = profile.category if profile else SubscriberProfile.CATEGORY_OTHER
+    if manual_profile.category != desired_category:
+        manual_profile.category = desired_category
+        manual_profile_updates.append("category")
+    if manual_profile_updates:
+        manual_profile_updates.append("updated_at")
+        manual_profile.save(update_fields=manual_profile_updates)
+
+    scanned_now = timezone.now()
+    all_handles_from_images: set[str] = set()
+    dependency_warning = ""
+    loyal_score_gained = 0
+
+    if not shutil.which("tesseract"):
+        default_exe = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+        if not default_exe.exists():
+            dependency_warning = "Tesseract OCR app is not installed/found. Install Tesseract to extract text."
+
+    extracted_text = _extract_text_from_uploaded_image(uploaded_file)
+    lowered_text = (extracted_text or "").lower()
+
+    loyal_hits = sum(1 for keyword in LOYAL_SCORE_KEYWORDS if keyword in lowered_text)
+    loyal_score_gained += loyal_hits
+
+    # Strong gate 1: if loyal score is zero, store image for review and stop verification.
+    if loyal_score_gained <= 0:
+        try:
+            uploaded_file.seek(0)
+        except Exception:
+            pass
+        VerificationImage.objects.create(
+            user=request.user,
+            image=uploaded_file,
+            scanned_status=False,
+            scanned_at=None,
+            extracted_text=extracted_text.strip(),
+        )
+        request.session["manual_verify_row_error"] = "Upload real screenshot image"
+        request.session["show_filter_guide"] = True
+        return redirect("subscribers:youtube_tasks_manual")
+
+    has_most_relevant = bool(MOST_RELEVANT_REGEX.search(lowered_text))
+    has_new_activity = bool(NEW_ACTIVITY_REGEX.search(lowered_text))
+    can_verify_handles = has_most_relevant and not has_new_activity
+
+    handles = _extract_handles_from_text(extracted_text) 
+    if can_verify_handles:
+        all_handles_from_images.update(handles)
+    else:
+        request.session["show_filter_guide"] = True
+        request.session["manual_verify_row_error"] = (
+            "Bad filtering detected. Please change filter to 'Most relevant' and reupload screenshot."
+        )
+        return redirect("subscribers:youtube_tasks_manual")
+
+    matched_rows = []
+    for handle in sorted(all_handles_from_images):
+        match = handle_to_assignment.get(handle)
+        if match:
+            matched_rows.append(match)
+
+    score_gained_from_matches = len({row.id for row in matched_rows})
+    verified_count = 0
+    owner_verified_increments: dict[int, int] = {}
+    with transaction.atomic():
+        if matched_rows:
+            for row in matched_rows:
+                if row.subscribed_status != ManualSubscribeTaskAssign.STATUS_VERIFIED:
+                    row.subscribed_status = ManualSubscribeTaskAssign.STATUS_VERIFIED
+                    row.save(update_fields=["subscribed_status", "updated_at"])
+                    verified_count += 1
+                    owner_user_id = getattr(row.target_profile, "user_id", None)
+                    if owner_user_id:
+                        owner_verified_increments[owner_user_id] = owner_verified_increments.get(owner_user_id, 0) + 1
+
+        manual_profile.loyal_score = int(manual_profile.loyal_score or 0) + loyal_score_gained 
+        manual_profile.sub_score = int(manual_profile.sub_score or 0) + score_gained_from_matches
+        manual_profile.save(update_fields=["loyal_score", "sub_score", "updated_at"])
+
+        # Credit total_verified to each task owner (target profile user), not to the receiver.
+        if owner_verified_increments:
+            owner_profiles = {
+                mp.user_id: mp
+                for mp in ManualSubscribeProfile.objects.select_for_update().filter(
+                    user_id__in=owner_verified_increments.keys()
+                )
+            }
+            missing_owner_ids = [uid for uid in owner_verified_increments.keys() if uid not in owner_profiles]
+            if missing_owner_ids:
+                missing_users = User.objects.filter(id__in=missing_owner_ids)
+                for owner_user in missing_users:
+                    owner_profiles[owner_user.id] = ManualSubscribeProfile.objects.create(
+                        user=owner_user,
+                        handle=(owner_user.handle or owner_user.username),
+                        category=SubscriberProfile.CATEGORY_OTHER,
+                    )
+
+            for owner_user_id, increment in owner_verified_increments.items():
+                owner_profile = owner_profiles.get(owner_user_id)
+                if not owner_profile:
+                    continue
+                owner_profile.total_verified = int(owner_profile.total_verified or 0) + int(increment or 0)
+                owner_profile.save(update_fields=["total_verified", "updated_at"])
+
+    status_message = (   
+        f"Scan complete. Tasks verified: {verified_count}. "   
+        f"Match score gained: {score_gained_from_matches}. Loyal score gained: {loyal_score_gained}."   
+    )   
+    request.session["manual_last_scan_matched"] = int(score_gained_from_matches)
+    messages.success(request, status_message) 
+    if dependency_warning:
+        messages.warning(request, dependency_warning)
+    return redirect("subscribers:youtube_tasks_manual")
 
 
 @login_required
@@ -1087,7 +2466,10 @@ def subscribe_assigned_channel(request):
 @login_required
 @require_POST
 def mark_facebook_followed(request):
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
+    profile = _get_google_profile(request.user)
+    if not profile:
+        messages.error(request, "Profile not found for this action.")
+        return redirect("subscribers:facebook_tasks")
     target_profile_id_raw = (request.POST.get("target_profile_id") or "").strip()
     if not target_profile_id_raw.isdigit():
         messages.error(request, "Invalid target profile id.")
@@ -1135,7 +2517,10 @@ def mark_facebook_followed(request):
 @login_required
 @require_POST
 def subscribe_top_user_channel(request):
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
+    profile = _get_google_profile(request.user)
+    if not profile:
+        messages.error(request, "Google profile not found for this action.")
+        return redirect("subscribers:subscribe_tasks_manual")
     target_profile_id_raw = (request.POST.get("target_profile_id") or "").strip()
     if not target_profile_id_raw.isdigit():
         messages.error(request, "Invalid target profile id.")
@@ -1182,12 +2567,10 @@ def subscribe_top_user_channel(request):
         top_user_task.verified_status = True
         top_user_task.subscribed_at = timezone.now()
         top_user_task.error_message = ""
-        top_user_task.save(
-            update_fields=["verified_status", "subscribed_at", "error_message", "last_attempt_at", "updated_at"]
-        )
-        if not was_verified:
-            _transfer_score_for_verified_task(top_user_task)
-        recalculate_profile_score(profile)
+        top_user_task.save( 
+            update_fields=["verified_status", "subscribed_at", "error_message", "last_attempt_at", "updated_at"] 
+        ) 
+        recalculate_profile_score(profile) 
     except YouTubeOAuthError as exc:
         error_text = str(exc)
         if "subscriptionDuplicate" in error_text:
@@ -1197,12 +2580,10 @@ def subscribe_top_user_channel(request):
             if top_user_task.subscribed_at is None:
                 top_user_task.subscribed_at = timezone.now()
             top_user_task.error_message = ""
-            top_user_task.save(
-                update_fields=["verified_status", "subscribed_at", "error_message", "last_attempt_at", "updated_at"]
-            )
-            if not was_verified:
-                _transfer_score_for_verified_task(top_user_task)
-            recalculate_profile_score(profile)
+            top_user_task.save( 
+                update_fields=["verified_status", "subscribed_at", "error_message", "last_attempt_at", "updated_at"] 
+            ) 
+            recalculate_profile_score(profile) 
         elif "insufficientPermissions" in error_text:
             top_user_task.error_message = "Missing YouTube write permission."
             top_user_task.save(update_fields=["error_message", "last_attempt_at", "updated_at"])
@@ -1220,6 +2601,97 @@ def subscribe_top_user_channel(request):
             messages.error(request, f"Subscribe failed: {exc}")
 
     return redirect("subscribers:youtube_tasks")
+
+
+def _build_subscribe_channel_url(target_profile: SubscriberProfile) -> str:
+    if target_profile.handle:
+        return f"https://www.youtube.com/{target_profile.handle}?sub_confirmation=1"
+    if target_profile.channel_id:
+        return f"https://www.youtube.com/channel/{target_profile.channel_id}?sub_confirmation=1"
+    return "https://www.youtube.com/"
+
+
+@login_required
+@require_POST
+def manual_subscribe_task_assign(request): 
+    if _is_google_user(request.user):
+        messages.info(request, "Google is connected. Use the normal subscribe flow.")
+        return redirect("subscribers:youtube_tasks")
+    profile = SubscriberProfile.objects.filter(user=request.user).first()
+
+    target_profile_id_raw = (request.POST.get("target_profile_id") or "").strip()
+    if not target_profile_id_raw.isdigit():
+        messages.error(request, "Invalid target profile id.")
+        return redirect("subscribers:youtube_tasks")
+
+    target_profile = (
+        SubscriberProfile.objects.select_related("user")
+        .filter(id=int(target_profile_id_raw))
+        .first()
+    )
+    if target_profile is None:
+        messages.error(request, "Target user profile not found.")
+        return redirect("subscribers:youtube_tasks")
+    if target_profile.user_id == request.user.id:
+        messages.warning(request, "You cannot subscribe to your own channel.")
+        return redirect("subscribers:youtube_tasks")
+
+    manual_profile, _ = ManualSubscribeProfile.objects.get_or_create(
+        user=request.user,
+        defaults={
+            "handle": (profile.handle if profile else request.user.handle) or request.user.username,
+            "category": profile.category if profile else SubscriberProfile.CATEGORY_OTHER,
+            "last_tasks_entry_at": timezone.now(),
+        },
+    )
+    desired_handle = (profile.handle if profile else request.user.handle) or request.user.username
+    profile_fields_to_update = []
+    if manual_profile.user_id != request.user.id:
+        manual_profile.user = request.user
+        profile_fields_to_update.append("user")
+    if manual_profile.handle != desired_handle:
+        manual_profile.handle = desired_handle
+        profile_fields_to_update.append("handle")
+    desired_category = profile.category if profile else SubscriberProfile.CATEGORY_OTHER
+    if manual_profile.category != desired_category:
+        manual_profile.category = desired_category
+        profile_fields_to_update.append("category")
+    if not manual_profile.active_status_for_subscribe:
+        manual_profile.active_status_for_subscribe = True
+        profile_fields_to_update.append("active_status_for_subscribe")
+    if profile_fields_to_update:
+        profile_fields_to_update.append("updated_at")
+        manual_profile.save(update_fields=profile_fields_to_update)
+
+    with transaction.atomic():
+        existing_task = ManualSubscribeTaskAssign.objects.filter(
+            user=request.user,
+            target_profile=target_profile,
+        ).first()
+
+        needs_hold = not (
+            existing_task
+            and existing_task.subscribed_status in MANUAL_PENDING_STATUSES
+        )
+        if needs_hold:
+            held_rows = ManualSubscribeProfile.objects.filter(
+                user__subscriber_profiles__id=target_profile.id,
+                sub_score__gt=0,
+            ).update(sub_score=F("sub_score") - 1)
+            if held_rows == 0:
+                messages.warning(request, "Target score is not available right now. Please refresh tasks.")
+                return redirect("subscribers:youtube_tasks_manual")
+
+        ManualSubscribeTaskAssign.objects.update_or_create(
+            user=request.user,
+            target_profile=target_profile,
+            defaults={
+                "manual_subscribe_profile": manual_profile,
+                "subscribed_status": ManualSubscribeTaskAssign.STATUS_UNVERIFIED,
+                "active_status": True,
+            },
+        )
+    return redirect(_build_subscribe_channel_url(target_profile)) 
 
 
 @require_GET
@@ -1359,6 +2831,9 @@ def google_callback(request):
             raise YouTubeOAuthError("Google user ID not returned.")
 
         user, profile = _get_or_create_user_for_google(userinfo)
+        if user.account_mode != User.ACCOUNT_MODE_GOOGLE:
+            user.account_mode = User.ACCOUNT_MODE_GOOGLE
+            user.save(update_fields=["account_mode"])
         login(request, user)
 
         profile.google_subject_id = userinfo.get("sub", "")
@@ -1399,6 +2874,31 @@ def google_callback(request):
 
 @login_required
 def sign_out(request):
+    profile = SubscriberProfile.objects.filter(user=request.user).first()
+    if profile:
+        profile.active_status = False
+        profile.save(update_fields=["active_status", "updated_at"])
+
+        VideoProfile.objects.filter(user=request.user).update(
+            active_status_for_video=False,
+            active_status_for_youtube=False,
+            updated_at=timezone.now(),
+        )
+
+        ManualSubscribeProfile.objects.filter(user=request.user).update(
+            active_status_for_subscribe=False,
+            updated_at=timezone.now(),
+        )
+    else:
+        VideoProfile.objects.filter(user=request.user).update(
+            active_status_for_video=False,
+            active_status_for_youtube=False,
+            updated_at=timezone.now(),
+        )
+        ManualSubscribeProfile.objects.filter(user=request.user).update(
+            active_status_for_subscribe=False,
+            updated_at=timezone.now(),
+        )
     logout(request)
     messages.info(request, "You are logged out.")
     return redirect("subscribers:home")
@@ -1412,13 +2912,13 @@ def sign_out(request):
 @require_GET
 def watch_video_root(request):
     """Video-table-only watch page root."""
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
+    profile = SubscriberProfile.objects.filter(user=request.user).first()
     first_video = Video.objects.order_by("-updated_at").first()
     if first_video:
         return redirect("subscribers:watch_video", task_id=first_video.id)
     featured_videos = []
     try:
-        featured_videos = _featured_videos_for_watch_page(profile)
+        featured_videos = _featured_videos_for_watch_page(profile, request.user)
     except Exception:
         logger.exception("Failed loading featured videos for watch root")
 
@@ -1459,9 +2959,13 @@ def _get_or_create_channel_video(
 @login_required
 @require_POST
 def share_channel_video(request, youtube_video_id):
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
+    profile = _get_google_profile(request.user)
+    if not profile:
+        messages.error(request, "Google profile is required for category-based video share.")
+        return redirect('subscribers:watch_video_root')
+    source_video_profile, _ = _get_or_create_video_profile(request.user)
 
-    available_score = available_video_score(profile)
+    available_score = available_video_score(request.user)
     if available_score <= 0:
         messages.error(request, "You need available video score to share a video with other users.")
         return redirect('subscribers:watch_video_root')
@@ -1474,10 +2978,15 @@ def share_channel_video(request, youtube_video_id):
     )
 
     current_category = (profile.category or SubscriberProfile.CATEGORY_OTHER).strip().lower()
+    target_user_ids = list(
+        VideoProfile.objects.filter(active_status_for_video=True)
+        .exclude(user_id=request.user.id)
+        .values_list("user_id", flat=True)
+    )
     target_profiles_qs = SubscriberProfile.objects.filter(
         active_status=True,
-        active_status_for_video=True,
-    ).exclude(id=profile.id).order_by('-video_score', '-updated_at')
+        user_id__in=target_user_ids,
+    ).exclude(id=profile.id).order_by('-updated_at')
     target_profiles = list(target_profiles_qs)
     if not target_profiles:
         messages.warning(request, "No other active users are available to receive your video right now.")
@@ -1485,7 +2994,7 @@ def share_channel_video(request, youtube_video_id):
     target_profiles.sort(
         key=lambda p: (
             0 if (p.category or SubscriberProfile.CATEGORY_OTHER).strip().lower() == current_category else 1,
-            -int(p.video_score or 0),
+            -int(getattr(getattr(p.user, "video_profile", None), "video_score", 0) or 0),
             -int(p.id or 0),
         )
     )
@@ -1502,6 +3011,7 @@ def share_channel_video(request, youtube_video_id):
 
     assigned_count = assign_video_from_source_profile(
         source_profile=profile,
+        source_user=request.user,
         video=video,
         target_profiles=target_profiles,
         minutes_per_target=1,
@@ -1521,7 +3031,7 @@ def share_channel_video(request, youtube_video_id):
 @require_GET
 def watch_video(request, task_id):
     """Display the video player using video table only (task_id treated as video id)."""
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
+    profile = SubscriberProfile.objects.filter(user=request.user).first()
 
     video = Video.objects.filter(id=task_id).first()
     if not video:
@@ -1536,7 +3046,7 @@ def watch_video(request, task_id):
     }
     featured_videos = []
     try:
-        featured_videos = _featured_videos_for_watch_page(profile)
+        featured_videos = _featured_videos_for_watch_page(profile, request.user)
     except Exception:
         logger.exception("Failed loading featured videos for watch page")
 
@@ -1563,7 +3073,8 @@ def watch_video(request, task_id):
 @require_POST
 def start_watch_session(request, task_id):
     """Initialize a simple session for video-table-only flow."""
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
+    profile = _get_google_profile(request.user)
+    video_profile, _ = _get_or_create_video_profile(request.user)
     video = Video.objects.filter(id=task_id).first()
     if not video:
         return JsonResponse({"success": False, "error": "Video not found"}, status=404)
@@ -1572,12 +3083,15 @@ def start_watch_session(request, task_id):
     session_id = secrets.token_urlsafe(24)
     request.session[f"watch_session_video_{task_id}"] = session_id
     request.session.modified = True
-    if not profile.active_status_for_video or not profile.active_status_for_youtube:
-        profile.active_status_for_video = True
-        profile.active_status_for_youtube = True
-        profile.save(update_fields=["active_status_for_video", "active_status_for_youtube", "updated_at"])
-    profile.last_tasks_entry_at = now
-    profile.save(update_fields=["last_tasks_entry_at", "updated_at"])
+    if not video_profile.active_status_for_video or not video_profile.active_status_for_youtube:
+        video_profile.active_status_for_video = True
+        video_profile.active_status_for_youtube = True
+        video_profile.save(update_fields=["active_status_for_video", "active_status_for_youtube", "updated_at"])
+    video_profile.last_video_entry_at = now
+    video_profile.save(update_fields=["last_video_entry_at", "updated_at"])
+    if profile:
+        profile.last_tasks_entry_at = now
+        profile.save(update_fields=["last_tasks_entry_at", "updated_at"])
 
     min_watch = max((video.duration_seconds or 0) // 2, 1) if (video.duration_seconds or 0) > 0 else 60
     return JsonResponse(
@@ -1602,7 +3116,8 @@ def _get_client_ip(request):
 @require_POST
 def save_watch_time(request):
     """Save active watch-time and credit both viewer and source owner."""
-    viewer_profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
+    viewer_profile = _get_google_profile(request.user)
+    viewer_video_profile, _ = _get_or_create_video_profile(request.user)
 
     try:
         data = json.loads(request.body or "{}")
@@ -1643,12 +3158,14 @@ def save_watch_time(request):
 
         assignment_completed = False
         if video:
-            watch_task = (
-                VideoWatchTask.objects.select_related("source_profile")
-                .filter(profile=viewer_profile, video=video, verified_status=False)
-                .order_by("-created_at")
-                .first()
-            )
+            watch_task = None
+            if viewer_profile:
+                watch_task = (
+                    VideoWatchTask.objects.select_related("source_profile")
+                    .filter(profile=viewer_profile, video=video, verified_status=False)
+                    .order_by("-created_at")
+                    .first()
+                )
             if watch_task:
                 watch_task.watch_time_seconds = int(watch_task.watch_time_seconds or 0) + watch_time
                 completion_threshold = max(int((int(video.duration_seconds or 0)) * 0.8), 1)
@@ -1659,20 +3176,21 @@ def save_watch_time(request):
                     assignment_completed = True
 
                     reward_minutes = max(int(watch_task.assigned_video_score or 0), 1)
-                    viewer_profile.video_score = F("video_score") + reward_minutes
-                    viewer_profile.save(update_fields=["video_score", "updated_at"])
+                    viewer_video_profile.video_score = F("video_score") + reward_minutes
+                    viewer_video_profile.save(update_fields=["video_score", "updated_at"])
 
                     if watch_task.source_profile_id:
                         owner_for_task = watch_task.source_profile
-                        owner_for_task.refresh_from_db(fields=["video_score", "video_score_reserved"])
-                        owner_for_task.video_score_reserved = max(int(owner_for_task.video_score_reserved or 0) - reward_minutes, 0)
-                        owner_for_task.video_score = max(int(owner_for_task.video_score or 0) - reward_minutes, 0)
-                        owner_for_task.save(update_fields=["video_score", "video_score_reserved", "updated_at"])
+                        owner_video_profile, _ = _get_or_create_video_profile(owner_for_task.user)
+                        owner_video_profile.refresh_from_db(fields=["video_score", "video_score_reserved"])
+                        owner_video_profile.video_score_reserved = max(int(owner_video_profile.video_score_reserved or 0) - reward_minutes, 0)
+                        owner_video_profile.video_score = max(int(owner_video_profile.video_score or 0) - reward_minutes, 0)
+                        owner_video_profile.save(update_fields=["video_score", "video_score_reserved", "updated_at"])
                 else:
                     watch_task.status = VideoWatchTask.STATUS_ACTIVE
                 watch_task.save(update_fields=["watch_time_seconds", "verified_status", "verified_at", "status", "updated_at"])
 
-    viewer_profile.refresh_from_db(fields=["video_score"])
+    viewer_video_profile.refresh_from_db(fields=["video_score"])
 
     return JsonResponse(
         {
@@ -1680,7 +3198,7 @@ def save_watch_time(request):
             "message": "Watch time saved and owner reserve updated",
             "video_id": video_id,
             "added_watch_time": watch_time,
-            "viewer_video_score": int(viewer_profile.video_score or 0),
+            "viewer_video_score": int(viewer_video_profile.video_score or 0),
             "owner_reserved_added": owner_reserved_added,
             "owner_profile_id": (owner_profile.id if owner_profile else None),
             "video_status": video_status,
@@ -1693,7 +3211,8 @@ def save_watch_time(request):
 @require_POST
 def update_watch_time(request, task_id):
     """Heartbeat endpoint using video table only."""
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
+    profile = _get_google_profile(request.user)
+    video_profile, _ = _get_or_create_video_profile(request.user)
     video = Video.objects.filter(id=task_id).first()
     if not video:
         return JsonResponse({"success": False, "error": "Video not found"}, status=404)
@@ -1715,15 +3234,15 @@ def update_watch_time(request, task_id):
 
     now = timezone.now()
     if is_tab_active and is_player_playing:
-        profile.active_status_for_video = True
-        profile.active_status_for_youtube = True
-        profile.last_tasks_entry_at = now
+        video_profile.active_status_for_video = True
+        video_profile.active_status_for_youtube = True
+        video_profile.last_video_entry_at = now
         accepted_seconds = valid_seconds
     else:
-        profile.active_status_for_video = False
-        profile.active_status_for_youtube = False
+        video_profile.active_status_for_video = False
+        video_profile.active_status_for_youtube = False
         accepted_seconds = 0
-    profile.save(update_fields=["active_status_for_video", "active_status_for_youtube", "last_tasks_entry_at", "updated_at"])
+    video_profile.save(update_fields=["active_status_for_video", "active_status_for_youtube", "last_video_entry_at", "updated_at"])
 
     # Single source of truth:
     # watch-time accumulation is persisted only via save_watch_time endpoint.
@@ -1734,22 +3253,25 @@ def update_watch_time(request, task_id):
     if video.watched_time_seconds >= completion_threshold:
         video.status = Video.STATUS_COMPLETE
     else:
-        inactive_for_release = (not is_tab_active or not is_player_playing) and profile.last_tasks_entry_at and (now - profile.last_tasks_entry_at >= timedelta(minutes=10))
+        inactive_for_release = (not is_tab_active or not is_player_playing) and video_profile.last_video_entry_at and (now - video_profile.last_video_entry_at >= timedelta(minutes=ACTIVITY_WINDOW_MINUTES))
         if inactive_for_release:
             video.status = Video.STATUS_RELEASE
-            releasable_task = (
-                VideoWatchTask.objects.select_related("source_profile")
-                .filter(profile=profile, video=video, verified_status=False, status__in=[VideoWatchTask.STATUS_PENDING, VideoWatchTask.STATUS_ACTIVE])
-                .order_by("-created_at")
-                .first()
-            )
+            releasable_task = None
+            if profile:
+                releasable_task = (
+                    VideoWatchTask.objects.select_related("source_profile")
+                    .filter(profile=profile, video=video, verified_status=False, status__in=[VideoWatchTask.STATUS_PENDING, VideoWatchTask.STATUS_ACTIVE])
+                    .order_by("-created_at")
+                    .first()
+                )
             if releasable_task and releasable_task.source_profile_id:
                 release_minutes = max(int(releasable_task.assigned_video_score or 0), 0)
                 if release_minutes > 0:
                     owner_release = releasable_task.source_profile
-                    owner_release.refresh_from_db(fields=["video_score_reserved"])
-                    owner_release.video_score_reserved = max(int(owner_release.video_score_reserved or 0) - release_minutes, 0)
-                    owner_release.save(update_fields=["video_score_reserved", "updated_at"])
+                    owner_release_video_profile, _ = _get_or_create_video_profile(owner_release.user)
+                    owner_release_video_profile.refresh_from_db(fields=["video_score_reserved"])
+                    owner_release_video_profile.video_score_reserved = max(int(owner_release_video_profile.video_score_reserved or 0) - release_minutes, 0)
+                    owner_release_video_profile.save(update_fields=["video_score_reserved", "updated_at"])
                 releasable_task.status = VideoWatchTask.STATUS_RELEASE
                 releasable_task.save(update_fields=["status", "updated_at"])
         elif now - video.updated_at >= timedelta(minutes=30):
@@ -1825,16 +3347,17 @@ def complete_watch_task(request, task_id):
 @require_GET
 def video_score_details(request):
     """Show video score and reserved score details."""
-    profile, _ = SubscriberProfile.objects.get_or_create(user=request.user)
+    profile = _get_google_profile(request.user)
+    video_profile, _ = _get_or_create_video_profile(request.user)
     user_video_qs = Video.objects.filter(owner_user=request.user)
     total_watch_seconds = sum(int(v.watched_time_seconds or 0) for v in user_video_qs)
     total_watch_time_minutes = total_watch_seconds // 60
     
     context = {
-        'profile': profile,
-        'video_score': profile.video_score,
-        'video_score_reserved': profile.video_score_reserved,
-        'total_video_score': profile.video_score + profile.video_score_reserved,
+        'profile': profile or _manual_profile_defaults(request.user),
+        'video_score': video_profile.video_score,
+        'video_score_reserved': video_profile.video_score_reserved,
+        'total_video_score': video_profile.video_score + video_profile.video_score_reserved,
         'total_watch_time_minutes': total_watch_time_minutes,
         'watch_events_count': user_video_qs.count(),
         'recent_watch_events': user_video_qs.order_by('-updated_at')[:10],

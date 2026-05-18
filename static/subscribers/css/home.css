@@ -76,7 +76,8 @@
 
 .promo-frame {
     width: 100%;
-    height: 520px;
+    aspect-ratio: 16 / 9;
+    height: auto;
     border: 0;
     border-radius: 10px;
     background: #111;
@@ -133,7 +134,22 @@
 }
 
 @media (max-width: 768px) {
-    .promo-frame {
-        height: 320px;
+    .hero {
+        padding: 2.4rem 1rem 2rem;
+    }
+
+    .hero-actions .btn {
+        width: 100%;
+        max-width: 380px;
+    }
+
+    .page-wrap {
+        margin-top: -0.7rem;
+        padding: 0 0.6rem 1rem;
+    }
+
+    .promo-card,
+    .info-card {
+        padding: 0.75rem;
     }
 }

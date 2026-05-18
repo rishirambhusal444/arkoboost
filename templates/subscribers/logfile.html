@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+
+{% block title %}Messages{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2 style="margin-bottom:0.6rem;overflow-wrap:anywhere;">Messages</h2>
+    <p style="margin-bottom:1rem;color:#555;overflow-wrap:anywhere;">Source: {{ log_path }}</p>
+    <div style="background:#111;color:#f3f3f3;padding:1rem;border-radius:8px;max-height:70vh;overflow:auto;font-family:Consolas, monospace;font-size:0.9rem;line-height:1.4;overflow-wrap:anywhere;">
+        {% for line in log_lines %}
+            <div>{{ line }}</div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

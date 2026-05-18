@@ -324,8 +324,6 @@ class Command(BaseCommand):
         target_qs = SubscriberProfile.objects.filter(active_status=True).exclude(id=source_profile.id)
         if target_profile_id:
             target_qs = target_qs.filter(user_id=target_profile_id)
-        if target_min_score:
-            target_qs = target_qs.filter(video_score__gte=target_min_score)
 
         if not target_qs.exists():
             self.stdout.write(self.style.WARNING("No eligible target users found for source assignment."))
@@ -334,8 +332,9 @@ class Command(BaseCommand):
         max_targets = max_targets or None
         assigned_count = assign_video_from_source_profile(
             source_profile=source_profile,
+            source_user=source_profile.user,
             video=video,
-            target_profiles=list(target_qs.order_by('-video_score', '-updated_at')[:max_targets] if max_targets else target_qs.order_by('-video_score', '-updated_at')),
+            target_profiles=list(target_qs.order_by('-updated_at')[:max_targets] if max_targets else target_qs.order_by('-updated_at')),
             minutes_per_target=assign_minutes,
             max_targets=max_targets,
         )
