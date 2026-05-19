@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 
 # Load environment variables from .env file
 load_dotenv()
@@ -93,13 +94,29 @@ WSGI_APPLICATION = 'newyoutuber.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
-    "default": dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-        conn_max_age=600,
-        conn_health_checks=True,
+database_url = os.environ.get("DATABASE_URL")
+
+if database_url:
+    DATABASES = {
+        "default": dj_database_url.config(
+            default=database_url,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+elif DEBUG:
+    DATABASES = {
+        "default": dj_database_url.config(
+            default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+else:
+    raise ImproperlyConfigured(
+        "DATABASE_URL must be set when DJANGO_DEBUG=False. "
+        "Production should use PostgreSQL, not local SQLite."
     )
-}
 
 
 # Password validation
