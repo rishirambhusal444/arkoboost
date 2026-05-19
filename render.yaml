@@ -6,8 +6,17 @@ services:
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
     startCommand: gunicorn newyoutuber.wsgi:application
     envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: arkoboost-db
+          property: connectionString
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
       - key: DJANGO_DEBUG
         value: "False"
       - key: DJANGO_ALLOWED_HOSTS
-        value: ".onrender.com"
- 
+        value: "arkoboost.onrender.com,.onrender.com"
+
+databases:
+  - name: arkoboost-db
+    plan: free
