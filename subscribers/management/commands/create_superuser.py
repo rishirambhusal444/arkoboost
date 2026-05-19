@@ -22,7 +22,9 @@ class Command(BaseCommand):
             )
             return
 
-        if not User.objects.filter(username=username).exists():
+        user = User.objects.filter(username=username).first()
+
+        if user is None:
             User.objects.create_superuser(
                 username=username,
                 email=email,
@@ -30,4 +32,10 @@ class Command(BaseCommand):
             )
             self.stdout.write(self.style.SUCCESS("Superuser created"))
         else:
-            self.stdout.write("Superuser already exists")
+            user.email = email
+            user.is_staff = True
+            user.is_superuser = True
+            user.is_active = True
+            user.set_password(password)
+            user.save(update_fields=["email", "is_staff", "is_superuser", "is_active", "password"])
+            self.stdout.write(self.style.SUCCESS("Superuser updated"))
