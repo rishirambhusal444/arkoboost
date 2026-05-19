@@ -12,7 +12,7 @@ class Command(BaseCommand):
 
         username = os.environ.get("DJANGO_SUPERUSER_USERNAME", "superadmin")
         email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@example.com")
-        password = os.environ.get("DJANGO_SUPERUSER_PASSWORD")
+        password = os.environ.get("DJANGO_SUPERUSER_PASSWORD") or "Superadmin@123"
 
         if not password:
             self.stdout.write(
