@@ -189,7 +189,7 @@
             border: none;
             border-radius: 6px;
             padding: 0.55rem 0.9rem;
-            background: #111827;
+            background: #FF0000;
             color: #fff;
             font-size: 0.9rem;
             font-weight: 600;
@@ -199,7 +199,7 @@
         }
 
         .manual-login-btn:hover {
-            background: #000000;
+            background: #CC0000;
         }
 
         .signup-link a {
@@ -283,12 +283,12 @@
                     <button type="button" class="toggle-password-btn" data-target="password">Show</button>
                 </div>
             </div>
+            <div class="signup-link">
+                Don't have an account? <a href="{% url 'subscribers:signup' %}">Sign up here</a>
+            </div>
+            <br>
             <button type="submit" class="manual-login-btn">Login with Username</button>
         </form>
-
-        <div class="signup-link">
-            Don't have an account? <a href="{% url 'subscribers:signup' %}">Sign up here</a>
-        </div>
 
         <div class="divider"><span>OR</span></div>
 
