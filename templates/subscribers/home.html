@@ -17,8 +17,8 @@
             {% else %}
                 <a href="{% url 'subscribers:subscribe_tasks_manual' %}" class="btn btn-primary">Subscribe Tasks</a>
             {% endif %}
-            <a href="{% url 'subscribers:enter_watch_tasks' %}" class="btn btn-secondary">Watch Tasks</a>
-            <a href="{% url 'subscribers:facebook_tasks_manual' %}" class="btn btn-secondary">Facebook Follow Tasks</a>
+            <a href="{% url 'subscribers:enter_watch_tasks' %}" class="btn btn-secondary">Video Tasks</a>
+            <a href="{% url 'subscribers:facebook_tasks_manual' %}" class="btn btn-facebook">Facebook Follow Tasks</a>
         {% else %}
             <a href="{% url 'subscribers:login' %}" class="btn btn-primary">Login To Start</a>
             <a href="{% url 'subscribers:login' %}" class="btn btn-secondary">Explore Tasks</a>

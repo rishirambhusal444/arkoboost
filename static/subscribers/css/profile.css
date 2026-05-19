@@ -149,6 +149,16 @@
     border-color: var(--theme-soft-border);
 }
 
+.task-cta-btn.facebook {
+    background: #1877f2;
+    color: #fff;
+    border-color: #cfe0ff;
+}
+
+.task-cta-btn.facebook:hover {
+    box-shadow: 0 8px 18px rgba(24, 119, 242, 0.28);
+}
+
 .insight-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
