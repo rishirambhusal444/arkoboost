@@ -2625,16 +2625,29 @@ def _build_subscribe_channel_url(target_profile: SubscriberProfile) -> str:
     return "https://www.youtube.com/"
 
 
+def _build_subscribe_channel_app_url(target_profile: SubscriberProfile) -> str:
+    if target_profile.channel_id:
+        return f"vnd.youtube://channel/{target_profile.channel_id}"
+    if target_profile.handle:
+        return f"vnd.youtube://www.youtube.com/{target_profile.handle}"
+    return "vnd.youtube://"
+
+
 @login_required
 @require_POST
 def manual_subscribe_task_assign(request): 
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest"
     if _is_google_user(request.user):
+        if wants_json:
+            return JsonResponse({"ok": False, "message": "Google is connected. Use the normal subscribe flow."}, status=400)
         messages.info(request, "Google is connected. Use the normal subscribe flow.")
         return redirect("subscribers:youtube_tasks")
     profile = SubscriberProfile.objects.filter(user=request.user).first()
 
     target_profile_id_raw = (request.POST.get("target_profile_id") or "").strip()
     if not target_profile_id_raw.isdigit():
+        if wants_json:
+            return JsonResponse({"ok": False, "message": "Invalid target profile id."}, status=400)
         messages.error(request, "Invalid target profile id.")
         return redirect("subscribers:youtube_tasks")
 
@@ -2644,9 +2657,13 @@ def manual_subscribe_task_assign(request):
         .first()
     )
     if target_profile is None:
+        if wants_json:
+            return JsonResponse({"ok": False, "message": "Target user profile not found."}, status=404)
         messages.error(request, "Target user profile not found.")
         return redirect("subscribers:youtube_tasks")
     if target_profile.user_id == request.user.id:
+        if wants_json:
+            return JsonResponse({"ok": False, "message": "You cannot subscribe to your own channel."}, status=400)
         messages.warning(request, "You cannot subscribe to your own channel.")
         return redirect("subscribers:youtube_tasks")
 
@@ -2693,6 +2710,11 @@ def manual_subscribe_task_assign(request):
                 sub_score__gt=0,
             ).update(sub_score=F("sub_score") - 1)
             if held_rows == 0:
+                if wants_json:
+                    return JsonResponse(
+                        {"ok": False, "message": "Target score is not available right now. Please refresh tasks."},
+                        status=409,
+                    )
                 messages.warning(request, "Target score is not available right now. Please refresh tasks.")
                 return redirect("subscribers:youtube_tasks_manual")
 
@@ -2704,6 +2726,16 @@ def manual_subscribe_task_assign(request):
                 "subscribed_status": ManualSubscribeTaskAssign.STATUS_UNVERIFIED,
                 "active_status": True,
             },
+        )
+    if wants_json:
+        return JsonResponse(
+            {
+                "ok": True,
+                "status": ManualSubscribeTaskAssign.STATUS_UNVERIFIED,
+                "label": "Unverified",
+                "web_url": _build_subscribe_channel_url(target_profile),
+                "app_url": _build_subscribe_channel_app_url(target_profile),
+            }
         )
     return redirect(_build_subscribe_channel_url(target_profile)) 
 
