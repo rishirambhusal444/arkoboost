@@ -1141,11 +1141,16 @@ def _assign_tasks_for_manual_receiver(
         row.user_id: row
         for row in SubscriberProfile.objects.select_related("user").filter(user_id__in=candidate_user_ids)
     }
+    targets_by_user_id = {row.user_id: row for row in targets}
     rows = []
     for target_user_id in candidate_user_ids:
         target_profile = target_profiles.get(target_user_id)
         if not target_profile:
-            continue
+            target_profile = _get_or_create_distribution_profile_for_manual(
+                targets_by_user_id.get(target_user_id)
+            )
+            if not target_profile:
+                continue
         rows.append(
             ManualSubscribeTaskAssign(
                 user_id=user.id,
@@ -2254,18 +2259,27 @@ def manual_youtube_tasks(request):
 
     _assign_tasks_for_manual_receiver(request.user, manual_profile)
 
-    if profile:  
-        recalculate_profile_score(profile)  
-        _assign_tasks_for_google_receiver(profile) 
-        _run_throttled_rebalance(now, "google", online_minutes=ACTIVITY_WINDOW_MINUTES)
-        _run_throttled_rebalance(now, "manual", online_minutes=ACTIVITY_WINDOW_MINUTES)
-        task_context = _build_youtube_task_context(request.user, profile) 
-    else:
-        task_context = {
-            "manual_verified_target_ids": set(),
-            "manual_unverified_target_ids": set(),
-            "total_view_hours": 0,
-        }
+    _run_throttled_rebalance(now, "manual", online_minutes=ACTIVITY_WINDOW_MINUTES)
+    manual_assign_status_by_target = {
+        row["target_profile_id"]: row["subscribed_status"]
+        for row in ManualSubscribeTaskAssign.objects.filter(user=request.user).values(
+            "target_profile_id",
+            "subscribed_status",
+        )
+    }
+    manual_task_context = {
+        "manual_verified_target_ids": {
+            target_id
+            for target_id, status in manual_assign_status_by_target.items()
+            if status == ManualSubscribeTaskAssign.STATUS_VERIFIED
+        },
+        "manual_unverified_target_ids": {
+            target_id
+            for target_id, status in manual_assign_status_by_target.items()
+            if status == ManualSubscribeTaskAssign.STATUS_UNVERIFIED
+        },
+        "total_view_hours": round((profile.channel_total_view_count or 0) / 60, 2) if profile else 0,
+    }
     pending_rows = list(
         ManualSubscribeTaskAssign.objects.select_related("target_profile__user")
         .filter(user=request.user, subscribed_status__in=MANUAL_PENDING_STATUSES)
@@ -2287,11 +2301,11 @@ def manual_youtube_tasks(request):
             "total_subscriber": profile.subscriber_change_since_last_scan if profile else 0,
             "total_subscribed_channel": profile.subscribed_channel_count if profile else 0,
             "video_total_view": profile.channel_total_view_count if profile else 0,
-            "total_view_hours": task_context["total_view_hours"],
+            "total_view_hours": manual_task_context["total_view_hours"],
             "video_total_count": profile.channel_video_count if profile else 0,
             "manual_visible_targets": manual_visible_targets, 
-            "manual_verified_target_ids": task_context["manual_verified_target_ids"], 
-            "manual_unverified_target_ids": task_context["manual_unverified_target_ids"], 
+            "manual_verified_target_ids": manual_task_context["manual_verified_target_ids"], 
+            "manual_unverified_target_ids": manual_task_context["manual_unverified_target_ids"], 
             "manual_verify_row_error": manual_verify_row_error,  
             "manual_total_verified": int(getattr(manual_profile, "total_verified", 0) or 0), 
             "manual_last_scan_matched": manual_last_scan_matched,
