@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+
+{% block title %}Facebook Follow Setup - NewYoutubers{% endblock %}
+
+{% block extra_css %}
+    .facebook-shell {
+        max-width: 860px;
+        margin: 2rem auto;
+        display: grid;
+        gap: 1rem;
+    }
+
+    .facebook-panel {
+        background: #fff;
+        border: 1px solid #d6e4ff;
+        border-radius: 8px;
+        padding: 1.25rem;
+        box-shadow: 0 2px 8px rgba(15, 95, 196, 0.08);
+    }
+
+    .facebook-panel h1 {
+        margin: 0 0 0.5rem;
+        color: #0f5fc4;
+        font-size: 1.45rem;
+    }
+
+    .facebook-form {
+        display: grid;
+        gap: 0.8rem;
+        margin-top: 1rem;
+    }
+
+    .facebook-form label {
+        display: grid;
+        gap: 0.35rem;
+        font-weight: 700;
+        color: #1e4f97;
+    }
+
+    .facebook-form input {
+        border: 1px solid #cfe0ff;
+        border-radius: 6px;
+        padding: 0.7rem 0.8rem;
+        font: inherit;
+    }
+
+    .facebook-actions {
+        display: flex;
+        gap: 0.7rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+{% endblock %}
+
+{% block content %}
+    <div class="facebook-shell">
+        <section class="facebook-panel">
+            <h1>Facebook Follow Setup</h1>
+            <p>Enter the Facebook page or profile people should follow.</p>
+
+            <form method="post" class="facebook-form">
+                {% csrf_token %}
+                <label>
+                    Page or profile name
+                    <input
+                        name="page_name"
+                        type="text"
+                        value="{{ facebook_profile.page_name|default:'' }}"
+                        placeholder="Example Page Name"
+                        required
+                    >
+                </label>
+                <label>
+                    Facebook page/profile link
+                    <input
+                        name="profile_url"
+                        type="url"
+                        value="{{ facebook_profile.profile_url|default:'' }}"
+                        placeholder="https://www.facebook.com/yourpage"
+                        required
+                    >
+                </label>
+                <div class="facebook-actions">
+                    <button type="submit" class="btn btn-primary">Save And Enter Tasks</button>
+                    {% if has_facebook_profile %}
+                        <a href="{% url 'subscribers:facebook_tasks_manual' %}" class="btn btn-secondary">Go To Tasks</a>
+                    {% endif %}
+                </div>
+            </form>
+        </section>
+    </div>
+{% endblock %}

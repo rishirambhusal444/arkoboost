@@ -376,6 +376,104 @@ class ManualSubscribeTaskAssign(models.Model):
         return f"{self.user.username} -> {target} ({self.subscribed_status})"
 
 
+class ManualFacebookProfile(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="manual_facebook_profile",
+    )
+    page_name = models.CharField(max_length=255, blank=True, db_index=True)
+    profile_url = models.URLField(blank=True)
+    follow_score = models.PositiveIntegerField(default=0)
+    total_verified = models.PositiveIntegerField(default=0)
+    loyal_score = models.PositiveIntegerField(default=0)
+    active_status_for_follow = models.BooleanField(default=False, db_index=True)
+    last_tasks_entry_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "manual_facebook_profile"
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(
+                fields=["active_status_for_follow", "last_tasks_entry_at"],
+                name="manfb_active_last_idx",
+            ),
+            models.Index(
+                fields=["active_status_for_follow", "follow_score"],
+                name="manfb_active_score_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return self.page_name or self.profile_url or self.user.username
+
+
+class ManualFacebookFollowTaskAssign(models.Model):
+    STATUS_ASSIGNED = "assigned"
+    STATUS_UNVERIFIED = "unverified"
+    STATUS_VERIFIED = "verified"
+    STATUS_RELEASED = "released"
+    STATUS_CHOICES = [
+        (STATUS_ASSIGNED, "Assigned"),
+        (STATUS_UNVERIFIED, "Unverified"),
+        (STATUS_VERIFIED, "Verified"),
+        (STATUS_RELEASED, "Released"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="manual_facebook_follow_task_assignments",
+    )
+    manual_facebook_profile = models.ForeignKey(
+        ManualFacebookProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="follow_task_assignments",
+    )
+    target_profile = models.ForeignKey(
+        ManualFacebookProfile,
+        on_delete=models.CASCADE,
+        related_name="target_follow_task_assignments",
+    )
+    followed_status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_ASSIGNED,
+        db_index=True,
+    )
+    active_status = models.BooleanField(default=False, db_index=True)
+    clicked_follow_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "manual_facebook_follow_task_assign"
+        ordering = ["-updated_at", "-created_at"]
+        indexes = [
+            models.Index(
+                fields=["user", "target_profile", "followed_status"],
+                name="manfb_task_pair_state_idx",
+            ),
+            models.Index(
+                fields=["followed_status", "user"],
+                name="manfb_task_state_owner_idx",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "target_profile"],
+                name="unique_manual_facebook_follow_task",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} -> {self.target_profile} ({self.followed_status})"
+
+
 class VerificationImage(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

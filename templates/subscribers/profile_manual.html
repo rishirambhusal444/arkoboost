@@ -28,6 +28,7 @@
                     {% endif %}
                     <a href="{% url 'subscribers:enter_watch_tasks' %}" class="task-cta-btn watch">Video view and 
                          </a>
+                    <a href="{% url 'subscribers:facebook_tasks_manual' %}" class="task-cta-btn watch">Facebook Follow</a>
                 </div>
             </div>
         </section>
@@ -72,6 +73,18 @@
                 <article class="metric-card">
                     <h3>Total Subscribed Channel</h3>
                     <p class="metric-value">{{ profile.subscribed_channel_count|default:0 }}</p>
+                </article>
+                <article class="metric-card">
+                    <h3>Facebook Follow Score</h3>
+                    <p class="metric-value">{{ manual_facebook_profile.follow_score|default:0 }}</p>
+                </article>
+                <article class="metric-card">
+                    <h3>Facebook Verified</h3>
+                    <p class="metric-value">{{ manual_facebook_profile.total_verified|default:0 }}</p>
+                </article>
+                <article class="metric-card">
+                    <h3>Facebook Loyal Score</h3>
+                    <p class="metric-value">{{ manual_facebook_profile.loyal_score|default:0 }}</p>
                 </article>
             </div>
         </section>

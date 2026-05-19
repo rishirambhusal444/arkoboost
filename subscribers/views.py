@@ -29,6 +29,8 @@ from django.views.decorators.http import require_GET, require_POST
 from .models import (
     FacebookProfile,
     FacebookTaskAssing,
+    ManualFacebookFollowTaskAssign,
+    ManualFacebookProfile,
     ManualSubscribeProfile,
     ManualSubscribeTaskAssign,
     SubscriberProfile,
@@ -89,6 +91,10 @@ LOCAL_ASSIGN_CAP = int(getattr(settings, "LOCAL_ASSIGN_CAP", 3))
 MANUAL_PENDING_STATUSES = (
     ManualSubscribeTaskAssign.STATUS_ASSIGNED,
     ManualSubscribeTaskAssign.STATUS_UNVERIFIED,
+)
+FACEBOOK_PENDING_STATUSES = (
+    ManualFacebookFollowTaskAssign.STATUS_ASSIGNED,
+    ManualFacebookFollowTaskAssign.STATUS_UNVERIFIED,
 )
 
 
@@ -1616,6 +1622,328 @@ def _extract_handles_from_text(raw_text: str) -> set[str]:
     return {match.group(1).strip().lower() for match in HANDLE_REGEX.finditer(raw_text or "") if match.group(1).strip()}
 
 
+def _normalize_facebook_profile_url(raw_value: str) -> str:
+    value = (raw_value or "").strip()
+    if not value:
+        return ""
+    if not re.match(r"^https?://", value, re.IGNORECASE):
+        value = f"https://{value}"
+    parsed = urlparse(value)
+    host = parsed.netloc.lower().removeprefix("www.")
+    if host not in {"facebook.com", "fb.com", "m.facebook.com"}:
+        return ""
+    if not parsed.path.strip("/"):
+        return ""
+    return value
+
+
+def _facebook_url_slug(profile_url: str) -> str:
+    parsed = urlparse(profile_url or "")
+    path = parsed.path.strip("/")
+    if not path:
+        return ""
+    first = path.split("/", 1)[0]
+    return re.sub(r"[^a-z0-9]+", " ", first.lower()).strip()
+
+
+def _facebook_match_tokens(profile: ManualFacebookProfile) -> set[str]:
+    tokens = set()
+    page_name = re.sub(r"[^a-z0-9]+", " ", (profile.page_name or "").lower()).strip()
+    url_slug = _facebook_url_slug(profile.profile_url)
+    for value in (page_name, url_slug):
+        if value and len(value) >= 3:
+            tokens.add(value)
+    return tokens
+
+
+def _build_facebook_app_url(profile_url: str) -> str:
+    slug = _facebook_url_slug(profile_url)
+    if slug:
+        return f"fb://facewebmodal/f?href={profile_url}"
+    return "fb://"
+
+
+def _assign_manual_facebook_follow_tasks(user, facebook_profile: ManualFacebookProfile, *, cap: int = LOCAL_ASSIGN_CAP) -> int:
+    existing_rows = list(
+        ManualFacebookFollowTaskAssign.objects.filter(user=user).values_list(
+            "target_profile_id",
+            "followed_status",
+        )
+    )
+    verified_ids = {
+        target_id
+        for target_id, status in existing_rows
+        if status == ManualFacebookFollowTaskAssign.STATUS_VERIFIED
+    }
+    pending_ids = {
+        target_id
+        for target_id, status in existing_rows
+        if status in FACEBOOK_PENDING_STATUSES
+    }
+    available_slots = max(cap - len(pending_ids), 0)
+    if available_slots <= 0:
+        return 0
+
+    targets = list(
+        ManualFacebookProfile.objects.filter(
+            active_status_for_follow=True,
+            follow_score__gt=0,
+        )
+        .exclude(user=user)
+        .exclude(id__in=verified_ids | pending_ids)
+        .order_by("-follow_score", "-updated_at")[:available_slots]
+    )
+    if not targets:
+        return 0
+
+    rows = [
+        ManualFacebookFollowTaskAssign(
+            user=user,
+            manual_facebook_profile=facebook_profile,
+            target_profile=target,
+            followed_status=ManualFacebookFollowTaskAssign.STATUS_ASSIGNED,
+            active_status=True,
+        )
+        for target in targets
+    ]
+    with transaction.atomic():
+        ManualFacebookFollowTaskAssign.objects.bulk_create(rows, ignore_conflicts=True)
+        ManualFacebookProfile.objects.filter(id__in=[target.id for target in targets]).update(
+            follow_score=Case(
+                When(follow_score__gt=0, then=F("follow_score") - 1),
+                default=Value(0),
+                output_field=IntegerField(),
+            )
+        )
+    return len(rows)
+
+
+@login_required
+def enter_facebook_tasks_manual(request):
+    facebook_profile = ManualFacebookProfile.objects.filter(user=request.user).first()
+
+    if request.method == "POST":
+        page_name = (request.POST.get("page_name") or "").strip()
+        profile_url = _normalize_facebook_profile_url(request.POST.get("profile_url") or "")
+
+        if not page_name:
+            messages.error(request, "Enter your Facebook page or profile name.")
+            return redirect("subscribers:facebook_tasks_manual_enter")
+        if not profile_url:
+            messages.error(request, "Enter a valid Facebook page/profile link.")
+            return redirect("subscribers:facebook_tasks_manual_enter")
+
+        facebook_profile, _ = ManualFacebookProfile.objects.get_or_create(user=request.user)
+        facebook_profile.page_name = page_name
+        facebook_profile.profile_url = profile_url
+        facebook_profile.active_status_for_follow = True
+        facebook_profile.last_tasks_entry_at = timezone.now()
+        facebook_profile.save(
+            update_fields=[
+                "page_name",
+                "profile_url",
+                "active_status_for_follow",
+                "last_tasks_entry_at",
+                "updated_at",
+            ]
+        )
+        messages.success(request, "Facebook profile link saved.")
+        return redirect("subscribers:facebook_tasks_manual")
+
+    return render(
+        request,
+        "subscribers/facebook_enter_manual.html",
+        {
+            "facebook_profile": facebook_profile,
+            "has_facebook_profile": bool(facebook_profile and facebook_profile.profile_url),
+        },
+    )
+
+
+@login_required
+def manual_facebook_tasks(request):
+    facebook_profile = ManualFacebookProfile.objects.filter(user=request.user).first()
+    if not facebook_profile or not facebook_profile.profile_url:
+        messages.warning(request, "Add your Facebook page/profile link before entering follow tasks.")
+        return redirect("subscribers:facebook_tasks_manual_enter")
+
+    now = timezone.now()
+    facebook_profile.active_status_for_follow = True
+    facebook_profile.last_tasks_entry_at = now
+    facebook_profile.save(update_fields=["active_status_for_follow", "last_tasks_entry_at", "updated_at"])
+
+    _assign_manual_facebook_follow_tasks(request.user, facebook_profile)
+
+    pending_rows = list(
+        ManualFacebookFollowTaskAssign.objects.select_related("target_profile__user")
+        .filter(user=request.user, followed_status__in=FACEBOOK_PENDING_STATUSES)
+        .order_by("-updated_at", "-created_at")
+    )
+    verified_target_ids = {
+        row["target_profile_id"]
+        for row in ManualFacebookFollowTaskAssign.objects.filter(
+            user=request.user,
+            followed_status=ManualFacebookFollowTaskAssign.STATUS_VERIFIED,
+        ).values("target_profile_id")
+    }
+    unverified_target_ids = {
+        row["target_profile_id"]
+        for row in ManualFacebookFollowTaskAssign.objects.filter(
+            user=request.user,
+            followed_status=ManualFacebookFollowTaskAssign.STATUS_UNVERIFIED,
+        ).values("target_profile_id")
+    }
+    return render(
+        request,
+        "subscribers/facebook_tasks_manual.html",
+        {
+            "facebook_profile": facebook_profile,
+            "pending_rows": pending_rows,
+            "verified_target_ids": verified_target_ids,
+            "unverified_target_ids": unverified_target_ids,
+            "facebook_verify_error": request.session.pop("facebook_verify_error", ""),
+            "facebook_last_scan_matched": int(request.session.pop("facebook_last_scan_matched", 0) or 0),
+        },
+    )
+
+
+@login_required
+@require_POST
+def manual_facebook_follow_task_assign(request):
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest"
+    target_profile_id_raw = (request.POST.get("target_profile_id") or "").strip()
+    if not target_profile_id_raw.isdigit():
+        if wants_json:
+            return JsonResponse({"ok": False, "message": "Invalid target profile id."}, status=400)
+        messages.error(request, "Invalid target profile id.")
+        return redirect("subscribers:facebook_tasks_manual")
+
+    target_profile = ManualFacebookProfile.objects.filter(id=int(target_profile_id_raw)).first()
+    if target_profile is None:
+        if wants_json:
+            return JsonResponse({"ok": False, "message": "Target Facebook profile not found."}, status=404)
+        messages.error(request, "Target Facebook profile not found.")
+        return redirect("subscribers:facebook_tasks_manual")
+    if target_profile.user_id == request.user.id:
+        if wants_json:
+            return JsonResponse({"ok": False, "message": "You cannot follow your own profile as a task."}, status=400)
+        messages.warning(request, "You cannot follow your own profile as a task.")
+        return redirect("subscribers:facebook_tasks_manual")
+
+    facebook_profile, _ = ManualFacebookProfile.objects.get_or_create(user=request.user)
+    with transaction.atomic():
+        existing_task = ManualFacebookFollowTaskAssign.objects.filter(
+            user=request.user,
+            target_profile=target_profile,
+        ).first()
+        needs_hold = not (
+            existing_task
+            and existing_task.followed_status in FACEBOOK_PENDING_STATUSES
+        )
+        if needs_hold:
+            held_rows = ManualFacebookProfile.objects.filter(id=target_profile.id, follow_score__gt=0).update(
+                follow_score=F("follow_score") - 1
+            )
+            if held_rows == 0:
+                if wants_json:
+                    return JsonResponse(
+                        {"ok": False, "message": "Target score is not available right now. Please refresh tasks."},
+                        status=409,
+                    )
+                messages.warning(request, "Target score is not available right now. Please refresh tasks.")
+                return redirect("subscribers:facebook_tasks_manual")
+
+        ManualFacebookFollowTaskAssign.objects.update_or_create(
+            user=request.user,
+            target_profile=target_profile,
+            defaults={
+                "manual_facebook_profile": facebook_profile,
+                "followed_status": ManualFacebookFollowTaskAssign.STATUS_UNVERIFIED,
+                "active_status": True,
+            },
+        )
+
+    if wants_json:
+        return JsonResponse(
+            {
+                "ok": True,
+                "status": ManualFacebookFollowTaskAssign.STATUS_UNVERIFIED,
+                "label": "Unverified",
+                "web_url": target_profile.profile_url,
+                "app_url": _build_facebook_app_url(target_profile.profile_url),
+            }
+        )
+    return redirect(target_profile.profile_url)
+
+
+@login_required
+@require_POST
+def make_facebook_verify_from_image(request):
+    uploaded_file = request.FILES.get("verification_image")
+    if not uploaded_file:
+        request.session["facebook_verify_error"] = "Please choose a screenshot and then click Make Verify."
+        return redirect("subscribers:facebook_tasks_manual")
+
+    pending_assignments = list(
+        ManualFacebookFollowTaskAssign.objects.select_related("target_profile")
+        .filter(user=request.user, followed_status__in=FACEBOOK_PENDING_STATUSES)
+    )
+    if not pending_assignments:
+        messages.info(request, "No unverified Facebook follow tasks were found.")
+        return redirect("subscribers:facebook_tasks_manual")
+
+    extracted_text = _extract_text_from_uploaded_image(uploaded_file)
+    lowered_text = re.sub(r"[^a-z0-9]+", " ", (extracted_text or "").lower())
+    has_follow_signal = any(
+        word in lowered_text
+        for word in ("following", "followed", "friends", "liked")
+    )
+    matched_rows = []
+    if has_follow_signal:
+        for row in pending_assignments:
+            if any(token in lowered_text for token in _facebook_match_tokens(row.target_profile)):
+                matched_rows.append(row)
+
+    if not matched_rows:
+        try:
+            uploaded_file.seek(0)
+        except Exception:
+            pass
+        VerificationImage.objects.create(
+            user=request.user,
+            image=uploaded_file,
+            scanned_status=False,
+            scanned_at=None,
+            extracted_text=extracted_text.strip(),
+        )
+        request.session["facebook_verify_error"] = "Upload a screenshot that clearly shows the followed Facebook page/profile."
+        return redirect("subscribers:facebook_tasks_manual")
+
+    facebook_profile, _ = ManualFacebookProfile.objects.get_or_create(user=request.user)
+    owner_verified_increments = {}
+    verified_count = 0
+    with transaction.atomic():
+        for row in matched_rows:
+            if row.followed_status != ManualFacebookFollowTaskAssign.STATUS_VERIFIED:
+                row.followed_status = ManualFacebookFollowTaskAssign.STATUS_VERIFIED
+                row.save(update_fields=["followed_status", "updated_at"])
+                verified_count += 1
+                owner_verified_increments[row.target_profile_id] = owner_verified_increments.get(row.target_profile_id, 0) + 1
+
+        facebook_profile.loyal_score = int(facebook_profile.loyal_score or 0) + 1
+        facebook_profile.follow_score = int(facebook_profile.follow_score or 0) + verified_count
+        facebook_profile.save(update_fields=["loyal_score", "follow_score", "updated_at"])
+
+        for target_profile_id, increment in owner_verified_increments.items():
+            ManualFacebookProfile.objects.filter(id=target_profile_id).update(
+                total_verified=F("total_verified") + increment
+            )
+
+    request.session["facebook_last_scan_matched"] = verified_count
+    messages.success(request, f"Facebook verify complete. Tasks verified: {verified_count}.")
+    return redirect("subscribers:facebook_tasks_manual")
+
+
 @login_required
 def enter_youtube_tasks(request):
     if not _is_google_user(request.user):
@@ -1958,6 +2286,7 @@ def profile_page(request, profile_mode=None):
     my_total_view_hours = round((profile.channel_total_view_count or 0) / 60, 2) if profile else 0
 
     manual_profile = None
+    manual_facebook_profile = None
     video_profile, _ = _get_or_create_video_profile(request.user)
     if requested_mode == "manual":
         manual_profile, _ = ManualSubscribeProfile.objects.get_or_create(
@@ -1967,6 +2296,7 @@ def profile_page(request, profile_mode=None):
                 "category": profile.category if profile else SubscriberProfile.CATEGORY_OTHER,
             },
         )
+        manual_facebook_profile = ManualFacebookProfile.objects.filter(user=request.user).first()
 
     display_profile = profile or _manual_profile_defaults(request.user, manual_profile)
     if isinstance(display_profile, dict):
@@ -1987,6 +2317,7 @@ def profile_page(request, profile_mode=None):
         {
             "profile": display_profile,
             "manual_profile": manual_profile,
+            "manual_facebook_profile": manual_facebook_profile,
             "profile_theme": profile_theme,
             "google_connected": google_connected,
             "facebook_connected": False,

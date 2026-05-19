@@ -5,6 +5,8 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import (
     FacebookProfile,
     FacebookTaskAssing,
+    ManualFacebookFollowTaskAssign,
+    ManualFacebookProfile,
     ManualSubscribeProfile,
     ManualSubscribeTaskAssign,
     SubscriberProfile,
@@ -260,6 +262,58 @@ class ManualSubscribeTaskAssignAdmin(admin.ModelAdmin):
     @admin.action(description="Mark selected as unverified")
     def mark_unverified(self, request, queryset):
         updated = queryset.update(subscribed_status=ManualSubscribeTaskAssign.STATUS_UNVERIFIED)
+        self.message_user(request, f"{updated} row(s) marked as unverified.", messages.WARNING)
+
+
+@admin.register(ManualFacebookProfile)
+class ManualFacebookProfileAdmin(admin.ModelAdmin):
+    list_display = (
+        "profile_name",
+        "profile_url",
+        "follow_score",
+        "total_verified",
+        "loyal_score",
+        "active_status_for_follow",
+        "updated_at",
+    )
+    list_filter = ("active_status_for_follow", "updated_at")
+    search_fields = ("page_name", "profile_url", "user__username", "user__email")
+    readonly_fields = ("created_at", "updated_at")
+
+    @admin.display(description="Profile")
+    def profile_name(self, obj):
+        return obj.page_name or obj.user.username
+
+
+@admin.register(ManualFacebookFollowTaskAssign)
+class ManualFacebookFollowTaskAssignAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "manual_facebook_profile",
+        "target_profile",
+        "followed_status",
+        "active_status",
+        "clicked_follow_at",
+        "updated_at",
+    )
+    list_filter = ("followed_status", "active_status", "updated_at")
+    search_fields = (
+        "user__username",
+        "user__email",
+        "target_profile__page_name",
+        "target_profile__profile_url",
+    )
+    readonly_fields = ("created_at", "updated_at", "clicked_follow_at")
+    actions = ("mark_verified", "mark_unverified")
+
+    @admin.action(description="Mark selected as verified")
+    def mark_verified(self, request, queryset):
+        updated = queryset.update(followed_status=ManualFacebookFollowTaskAssign.STATUS_VERIFIED)
+        self.message_user(request, f"{updated} row(s) marked as verified.", messages.SUCCESS)
+
+    @admin.action(description="Mark selected as unverified")
+    def mark_unverified(self, request, queryset):
+        updated = queryset.update(followed_status=ManualFacebookFollowTaskAssign.STATUS_UNVERIFIED)
         self.message_user(request, f"{updated} row(s) marked as unverified.", messages.WARNING)
 
 
