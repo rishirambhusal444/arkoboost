@@ -1178,20 +1178,11 @@ def _build_unique_username(base_value: str) -> str:
 
 def _rename_user_to_handle(user, handle: str) -> None:
     handle = (handle or "").strip()
-    if not handle or (user.username == handle and user.handle == handle):
+    if not handle or user.handle == handle:
         return
 
-    User = get_user_model()
-    candidate = handle[:150]
-    suffix = 1
-    while User.objects.filter(username=candidate).exclude(pk=user.pk).exists():
-        suffix += 1
-        short_base = handle[: max(150 - len(str(suffix)) - 1, 1)]
-        candidate = f"{short_base}_{suffix}"
-
-    user.username = candidate
     user.handle = handle
-    user.save(update_fields=["username", "handle"])
+    user.save(update_fields=["handle"])
 
 
 def _get_or_create_user_for_google(userinfo: dict):
