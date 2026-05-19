@@ -112,6 +112,7 @@
             margin-top: 0.7rem;
             color: #666;
             font-size: 0.95rem;
+            text-align: center;
         }
         
         .divider {
@@ -283,10 +284,6 @@
                     <button type="button" class="toggle-password-btn" data-target="password">Show</button>
                 </div>
             </div>
-            <div class="signup-link">
-                Don't have an account? <a href="{% url 'subscribers:signup' %}">Sign up here</a>
-            </div>
-            <br>
             <button type="submit" class="manual-login-btn">Login with Username</button>
         </form>
 
@@ -313,6 +310,10 @@
 
         <div class="info-box">
             Facebook login is hidden for now while Page permissions are prepared.
+        </div>
+
+        <div class="signup-link" style="margin-top: 2rem; border-top: 1px solid #eee; padding-top: 1.5rem;">
+            Don't have an account? <a href="{% url 'subscribers:signup' %}">Sign up here</a>
         </div>
 
     </div>
