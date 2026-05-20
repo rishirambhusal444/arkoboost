@@ -1621,9 +1621,11 @@ def _facebook_match_tokens(profile: ManualFacebookProfile) -> set[str]:
     tokens = set()
     page_name = re.sub(r"[^a-z0-9]+", " ", (profile.page_name or "").lower()).strip()
     url_slug = _facebook_url_slug(profile.profile_url)
-    for value in (page_name, url_slug):
-        if value and len(value) >= 3:
-            tokens.add(value)
+    # Prefer explicit page/profile name entered by user; fallback to URL slug only if name is empty.
+    if page_name and len(page_name) >= 3:
+        tokens.add(page_name)
+    elif url_slug and len(url_slug) >= 3:
+        tokens.add(url_slug)
     return tokens
 
 
@@ -1865,12 +1867,6 @@ def make_facebook_verify_from_image(request):
     extracted_text = _extract_text_from_uploaded_image(uploaded_file)
     request.session["last_ocr_text"] = (extracted_text or "")[:5000]
     lowered_text = re.sub(r"[^a-z0-9]+", " ", (extracted_text or "").lower())
-    has_most_relevant = bool(MOST_RELEVANT_REGEX.search(lowered_text))
-    has_new_activity = bool(NEW_ACTIVITY_REGEX.search(lowered_text))
-    if not (has_most_relevant and not has_new_activity):
-        request.session["show_filter_guide"] = True
-        request.session["facebook_verify_error"] = "Bad filtering detected. Please set filter to 'Most relevant' and reupload screenshot."
-        return redirect("subscribers:facebook_tasks_manual")
     has_follow_signal = "following" in lowered_text
     if not has_follow_signal:
         request.session["show_filter_guide"] = True
