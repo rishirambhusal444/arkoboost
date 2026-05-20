@@ -120,9 +120,6 @@
         <section class="task-panel">
             <p class="status-pill">Your follow score: {{ facebook_profile.follow_score|default:0 }}</p>
             <p class="status-pill">Verified by others: {{ facebook_profile.total_verified|default:0 }}</p>
-            <div style="margin-top:0.8rem;">
-                <a href="{% url 'subscribers:facebook_tasks_manual_enter' %}" class="btn btn-secondary">Edit Facebook Link</a>
-            </div>
         </section>
 
         <section class="task-panel">
@@ -133,6 +130,14 @@
             {% if facebook_verify_error %}
                 <div class="verify-error">{{ facebook_verify_error }}</div>
             {% endif %}
+            {% if show_filter_guide %}
+                <div style="margin-top:0.6rem;display:flex;justify-content:center;">
+                    <div style="width:min(560px, 100%);height:340px;overflow-y:auto;overflow-x:hidden;border:1px solid #d4e3ff;border-radius:8px;background:#fff;">
+                        {% load static %}
+                        <img src="{% static 'subscribers/images/corrcet_way.jpg' %}" alt="Correct filter guide" style="display:block;width:100%;height:auto;">
+                    </div>
+                </div>
+            {% endif %}
             <form method="post" action="{% url 'subscribers:make_facebook_verify_from_image' %}" enctype="multipart/form-data">
                 {% csrf_token %}
                 <div class="verify-row">
@@ -140,12 +145,6 @@
                     <button type="submit" class="btn btn-primary">Make Verify</button>
                 </div>
             </form>
-            {% if request.session.last_ocr_text %}
-                <div style="margin-top:0.6rem;">
-                    <strong>OCR output (raw):</strong>
-                    <pre style="white-space:pre-wrap;background:#f7f7f7;padding:0.6rem;border:1px solid #eee;border-radius:6px;">{{ request.session.last_ocr_text }}</pre>
-                </div>
-            {% endif %}
         </section>
 
         <section class="task-panel">
@@ -181,6 +180,13 @@
             {% else %}
                 <p>No Facebook follow tasks yet.</p>
             {% endif %}
+        </section>
+
+        <section class="task-panel">
+            <h2>Manage Setup</h2>
+            <div style="margin-top:0.4rem;">
+                <a href="{% url 'subscribers:facebook_tasks_manual_enter' %}" class="btn btn-secondary">Edit Facebook Link</a>
+            </div>
         </section>
     </div>
 

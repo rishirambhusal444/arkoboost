@@ -1772,6 +1772,7 @@ def manual_facebook_tasks(request):
             "unverified_target_ids": unverified_target_ids,
             "facebook_verify_error": request.session.pop("facebook_verify_error", ""),
             "facebook_last_scan_matched": int(request.session.pop("facebook_last_scan_matched", 0) or 0),
+            "show_filter_guide": bool(request.session.pop("show_filter_guide", False)),
         },
     )
 
@@ -1864,10 +1865,17 @@ def make_facebook_verify_from_image(request):
     extracted_text = _extract_text_from_uploaded_image(uploaded_file)
     request.session["last_ocr_text"] = (extracted_text or "")[:5000]
     lowered_text = re.sub(r"[^a-z0-9]+", " ", (extracted_text or "").lower())
-    has_follow_signal = any(
-        word in lowered_text
-        for word in ("following", "followed", "friends", "liked")
-    )
+    has_most_relevant = bool(MOST_RELEVANT_REGEX.search(lowered_text))
+    has_new_activity = bool(NEW_ACTIVITY_REGEX.search(lowered_text))
+    if not (has_most_relevant and not has_new_activity):
+        request.session["show_filter_guide"] = True
+        request.session["facebook_verify_error"] = "Bad filtering detected. Please set filter to 'Most relevant' and reupload screenshot."
+        return redirect("subscribers:facebook_tasks_manual")
+    has_follow_signal = "following" in lowered_text
+    if not has_follow_signal:
+        request.session["show_filter_guide"] = True
+        request.session["facebook_verify_error"] = "Screenshot must clearly show 'Following' state. Please reupload."
+        return redirect("subscribers:facebook_tasks_manual")
     matched_rows = []
     if has_follow_signal:
         for row in pending_assignments:
@@ -1886,6 +1894,7 @@ def make_facebook_verify_from_image(request):
             scanned_at=None,
             extracted_text=extracted_text.strip(),
         )
+        request.session["show_filter_guide"] = True
         request.session["facebook_verify_error"] = "Upload a screenshot that clearly shows the followed Facebook page/profile."
         return redirect("subscribers:facebook_tasks_manual")
 

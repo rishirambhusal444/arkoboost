@@ -61,6 +61,15 @@
             <form method="post" class="facebook-form">
                 {% csrf_token %}
                 <label>
+                    Facebook page/profile name
+                    <input
+                        name="page_name"
+                        type="text"
+                        value="{{ facebook_profile.page_name|default:'' }}"
+                        placeholder="Your page name"
+                    >
+                </label>
+                <label>
                     Facebook page/profile link
                     <input
                         name="profile_url"
