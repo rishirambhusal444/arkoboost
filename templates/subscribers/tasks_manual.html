@@ -275,6 +275,12 @@
                     <button type="submit" class="btn btn-secondary">Make Verify</button> 
                 </div> 
             </form> 
+            {% if request.session.last_ocr_text %}
+                <div style="margin-top:0.6rem;">
+                    <strong>OCR output (raw):</strong>
+                    <pre style="white-space:pre-wrap;background:#f7f7f7;padding:0.6rem;border:1px solid #eee;border-radius:6px;">{{ request.session.last_ocr_text }}</pre>
+                </div>
+            {% endif %}
             {% if manual_visible_targets %} 
                 <div class="task-matrix">
                     {% for target in manual_visible_targets %}

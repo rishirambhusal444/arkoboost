@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+
+{% block title %}Edit Facebook Link - NewYoutubers{% endblock %}
+
+{% block content %}
+<div class="container">
+    <section class="task-panel" style="max-width:720px;margin:2rem auto;">
+        <h2>Edit Facebook Link</h2>
+        <form method="post" action="{% url 'subscribers:update_facebook_profile' %}">
+            {% csrf_token %}
+            <div style="margin:0.6rem 0;">
+                <label for="facebook_profile_url">Facebook profile or page URL</label>
+                <input id="facebook_profile_url" name="facebook_profile_url" type="url" value="{{ facebook_profile_url }}" style="width:100%;padding:0.5rem;margin-top:0.25rem;" required>
+            </div>
+            <div style="margin:0.6rem 0;">
+                <label for="facebook_followers_count">Followers (whole number)</label>
+                <input id="facebook_followers_count" name="facebook_followers_count" type="number" value="{{ facebook_followers_count }}" style="width:200px;padding:0.5rem;margin-top:0.25rem;" min="0">
+            </div>
+            <input type="hidden" name="next" value="tasks">
+            <div style="margin-top:0.8rem;">
+                <button type="submit" class="btn btn-primary">Save Facebook Link</button>
+                <a href="{% url 'subscribers:facebook_tasks_manual' %}" class="btn btn-secondary">Back</a>
+            </div>
+        </form>
+    </section>
+</div>
+{% endblock %}

@@ -1,5 +1,7 @@
 import logging
 import json
+import io
+import os
 import secrets
 import re
 import shutil
@@ -63,6 +65,7 @@ from .services import (
     transfer_video_score_to_available,
     use_video_score,
 )
+from .ocr import get_ocr_text
 
 logger = logging.getLogger(__name__)
 
@@ -1565,55 +1568,23 @@ def _has_valid_task_handle(profile: SubscriberProfile) -> bool:
 
 def _extract_text_from_image_file(image_path: str) -> str:
     try:
-        from PIL import Image
-    except Exception:
-        return ""
-    try:
-        import pytesseract
-    except Exception:
-        return ""
-
-    if not shutil.which("tesseract"):
-        common_paths = [
-            Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
-            Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
-        ]
-        for candidate in common_paths:
-            if candidate.exists():
-                pytesseract.pytesseract.tesseract_cmd = str(candidate)
-                break
-
-    try:
-        with Image.open(image_path) as img:
-            return pytesseract.image_to_string(img) or ""
+        with open(image_path, "rb") as fh:
+            class _UploadedLike:
+                def __init__(self, data: bytes):
+                    self._data = data
+                    self.file = io.BytesIO(data)
+                def read(self):
+                    return self.file.read()
+                def seek(self, pos):
+                    return self.file.seek(pos)
+            return get_ocr_text(_UploadedLike(fh.read())) or ""
     except Exception:
         return ""
 
 
 def _extract_text_from_uploaded_image(uploaded_file) -> str:
     try:
-        from PIL import Image
-    except Exception:
-        return ""
-    try:
-        import pytesseract
-    except Exception:
-        return ""
-
-    if not shutil.which("tesseract"):
-        common_paths = [
-            Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
-            Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
-        ]
-        for candidate in common_paths:
-            if candidate.exists():
-                pytesseract.pytesseract.tesseract_cmd = str(candidate)
-                break
-
-    try:
-        uploaded_file.seek(0)
-        with Image.open(uploaded_file) as img:
-            return pytesseract.image_to_string(img) or ""
+        return get_ocr_text(uploaded_file) or ""
     except Exception:
         return ""
 
@@ -1725,13 +1696,11 @@ def enter_facebook_tasks_manual(request):
     if request.method == "POST":
         page_name = (request.POST.get("page_name") or "").strip()
         profile_url = _normalize_facebook_profile_url(request.POST.get("profile_url") or "")
-
-        if not page_name:
-            messages.error(request, "Enter your Facebook page or profile name.")
-            return redirect("subscribers:facebook_tasks_manual_enter")
         if not profile_url:
             messages.error(request, "Enter a valid Facebook page/profile link.")
             return redirect("subscribers:facebook_tasks_manual_enter")
+        if not page_name:
+            page_name = _facebook_url_slug(profile_url) or "facebook-page"
 
         facebook_profile, _ = ManualFacebookProfile.objects.get_or_create(user=request.user)
         facebook_profile.page_name = page_name
@@ -1893,6 +1862,7 @@ def make_facebook_verify_from_image(request):
         return redirect("subscribers:facebook_tasks_manual")
 
     extracted_text = _extract_text_from_uploaded_image(uploaded_file)
+    request.session["last_ocr_text"] = (extracted_text or "")[:5000]
     lowered_text = re.sub(r"[^a-z0-9]+", " ", (extracted_text or "").lower())
     has_follow_signal = any(
         word in lowered_text
@@ -2687,15 +2657,10 @@ def make_verify_from_images(request):
 
     scanned_now = timezone.now()
     all_handles_from_images: set[str] = set()
-    dependency_warning = ""
     loyal_score_gained = 0
 
-    if not shutil.which("tesseract"):
-        default_exe = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
-        if not default_exe.exists():
-            dependency_warning = "Tesseract OCR app is not installed/found. Install Tesseract to extract text."
-
     extracted_text = _extract_text_from_uploaded_image(uploaded_file)
+    request.session["last_ocr_text"] = (extracted_text or "")[:5000]
     lowered_text = (extracted_text or "").lower()
 
     loyal_hits = sum(1 for keyword in LOYAL_SCORE_KEYWORDS if keyword in lowered_text)
@@ -2787,8 +2752,6 @@ def make_verify_from_images(request):
     )   
     request.session["manual_last_scan_matched"] = int(score_gained_from_matches)
     messages.success(request, status_message) 
-    if dependency_warning:
-        messages.warning(request, dependency_warning)
     return redirect("subscribers:youtube_tasks_manual")
 
 

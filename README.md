@@ -52,4 +52,11 @@ $env:YOUTUBE_TARGET_CHANNEL_ID="UC-7jV2U-Y0-z_V-Y5-Y-Y0A" # Replace with your ta
   `http://127.0.0.1:8000/auth/google/callback/`
 - Use scope:
   `https://www.googleapis.com/auth/youtube.readonly`
+
+## Lightweight OCR for Render Free Tier
+
+- Set `OCRSPACE_API_KEY` in Render environment variables (free key from OCR.Space).
+- Optional compatibility alias: `OCR_SPACE_API_KEY` (either one works).
+- OCR is now API-only via OCR.Space (no local Tesseract fallback).
+- Images are preprocessed/compressed, OCR requests retry on timeout, and duplicate images are cached.
 # arkoboost
