@@ -19,6 +19,7 @@ from django.core.cache import cache
 from django.contrib import messages
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.contrib.auth.decorators import login_required
+from django.contrib.admin.views.decorators import staff_member_required
 from django.db import IntegrityError
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, Sum, Value, When
@@ -2304,6 +2305,7 @@ def profile_page(request, profile_mode=None):
         display_profile.active_status_for_youtube = bool(video_profile.active_status_for_youtube)
 
     template_name = "subscribers/profile_google.html" if requested_mode == "google" else "subscribers/profile_manual.html"
+    admin_video_settings = AdminVideo.objects.filter(pk=1).first()
     return render(
         request,
         template_name,
@@ -2322,8 +2324,24 @@ def profile_page(request, profile_mode=None):
             "assigned_task_mode": assigned_task_mode,
             "assigned_tasks": assigned_tasks,
             "top_user_subscribe_tasks": top_user_subscribe_tasks,
+            "admin_video_settings": admin_video_settings,
         },
     )
+
+
+@login_required
+@staff_member_required
+@require_POST
+def update_admin_videos(request):
+    row = AdminVideo.objects.filter(pk=1).first() or AdminVideo(pk=1)
+    row.home_video_url = (request.POST.get("home_video_url") or "").strip()
+    row.task_video_url_subscribe = (request.POST.get("task_video_url_subscribe") or "").strip()
+    row.task_video_url_subscribe_verify = (request.POST.get("task_video_url_subscribe_verify") or "").strip()
+    row.task_video_url_facebook = (request.POST.get("task_video_url_facebook") or "").strip()
+    row.task_video_url_facebook_verify = (request.POST.get("task_video_url_facebook_verify") or "").strip()
+    row.save()
+    messages.success(request, "Admin video URLs updated.")
+    return redirect("subscribers:profile_manual")
 
 
 @login_required

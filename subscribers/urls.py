@@ -17,6 +17,7 @@ urlpatterns = [
     path("profile/validate-youtube-handle/", views.validate_youtube_handle, name="validate_youtube_handle"),
     path("profile", views.profile_page),
     path("profile/facebook/", views.update_facebook_profile, name="update_facebook_profile"),
+    path("profile/admin-videos/", views.update_admin_videos, name="update_admin_videos"),
     path("tasks/", views.user_tasks, name="tasks"),
     path("tasks/youtube/", views.user_tasks, {"task_mode": "youtube"}, name="youtube_tasks"),
     path("tasks/youtube/manual/", views.manual_youtube_tasks, name="youtube_tasks_manual"),
