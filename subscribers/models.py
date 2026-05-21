@@ -495,6 +495,28 @@ class VerificationImage(models.Model):
         return f"{self.user.username} verification image {self.id}"
 
 
+class AdminVideo(models.Model):
+    home_video_url = models.URLField(blank=True)
+    task_video_url_subscribe = models.URLField(blank=True)
+    task_video_url_subscribe_verify = models.URLField(blank=True)
+    task_video_url_facebook = models.URLField(blank=True)
+    task_video_url_facebook_verify = models.URLField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "admin_videos"
+        verbose_name = "Admin Videos"
+        verbose_name_plural = "Admin Videos"
+
+    def save(self, *args, **kwargs):
+        # Keep a single settings row editable from Django admin.
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return "Admin Videos Configuration"
+
+
 class VideoProfile(models.Model):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,

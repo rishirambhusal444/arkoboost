@@ -3,6 +3,7 @@ from django.contrib import messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 from .models import (
+    AdminVideo,
     FacebookProfile,
     FacebookTaskAssing,
     ManualFacebookFollowTaskAssign,
@@ -323,3 +324,20 @@ class VerificationImageAdmin(admin.ModelAdmin):
     search_fields = ("user__username", "user__email", "image")
     list_filter = ("scanned_status", "created_at")
     readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(AdminVideo)
+class AdminVideoAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "home_video_url",
+        "task_video_url_subscribe",
+        "task_video_url_subscribe_verify",
+        "task_video_url_facebook",
+        "task_video_url_facebook_verify",
+        "updated_at",
+    )
+    readonly_fields = ("updated_at",)
+
+    def has_add_permission(self, request):
+        return not AdminVideo.objects.exists()

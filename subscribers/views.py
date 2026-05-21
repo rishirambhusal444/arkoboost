@@ -29,6 +29,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import (
+    AdminVideo,
     FacebookProfile,
     FacebookTaskAssing,
     ManualFacebookFollowTaskAssign,
@@ -69,6 +70,8 @@ from .ocr import get_ocr_text
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_GUIDE_VIDEO_URL = "https://www.youtube.com/embed/dQw4w9WgXcQ"
+
 HEARTBEAT_MIN_SECONDS = 2
 HEARTBEAT_MAX_SECONDS = 15
 MAX_VALID_SECONDS_PER_MINUTE = 45
@@ -99,6 +102,17 @@ FACEBOOK_PENDING_STATUSES = (
     ManualFacebookFollowTaskAssign.STATUS_ASSIGNED,
     ManualFacebookFollowTaskAssign.STATUS_UNVERIFIED,
 )
+
+
+def _admin_video_urls() -> dict:
+    row = AdminVideo.objects.filter(pk=1).first()
+    return {
+        "home_video_url": (getattr(row, "home_video_url", "") or DEFAULT_GUIDE_VIDEO_URL),
+        "task_video_url_subscribe": (getattr(row, "task_video_url_subscribe", "") or DEFAULT_GUIDE_VIDEO_URL),
+        "task_video_url_subscribe_verify": (getattr(row, "task_video_url_subscribe_verify", "") or DEFAULT_GUIDE_VIDEO_URL),
+        "task_video_url_facebook": (getattr(row, "task_video_url_facebook", "") or DEFAULT_GUIDE_VIDEO_URL),
+        "task_video_url_facebook_verify": (getattr(row, "task_video_url_facebook_verify", "") or DEFAULT_GUIDE_VIDEO_URL),
+    }
 
 
 def _run_throttled_rebalance(now, mode: str, *, online_minutes: int = 10) -> bool:
@@ -1249,11 +1263,13 @@ def home(request):
             video_profile.active_status_for_video = False
             video_profile.active_status_for_youtube = False
             video_profile.save(update_fields=["active_status_for_video", "active_status_for_youtube", "updated_at"])
+    video_urls = _admin_video_urls()
     return render(
         request,
         "subscribers/home.html",
         {
             "google_connected": google_connected,
+            **video_urls,
         },
     )
 
@@ -1764,6 +1780,7 @@ def manual_facebook_tasks(request):
             followed_status=ManualFacebookFollowTaskAssign.STATUS_UNVERIFIED,
         ).values("target_profile_id")
     }
+    video_urls = _admin_video_urls()
     return render(
         request,
         "subscribers/facebook_tasks_manual.html",
@@ -1775,6 +1792,7 @@ def manual_facebook_tasks(request):
             "facebook_verify_error": request.session.pop("facebook_verify_error", ""),
             "facebook_last_scan_matched": int(request.session.pop("facebook_last_scan_matched", 0) or 0),
             "show_filter_guide": bool(request.session.pop("show_filter_guide", False)),
+            **video_urls,
         },
     )
 
@@ -2587,6 +2605,7 @@ def manual_youtube_tasks(request):
     show_filter_guide = bool(request.session.pop("show_filter_guide", False))
     manual_last_scan_matched = int(request.session.pop("manual_last_scan_matched", 0) or 0)
 
+    video_urls = _admin_video_urls()
     return render(
         request,
         "subscribers/tasks_manual.html",
@@ -2607,6 +2626,7 @@ def manual_youtube_tasks(request):
             "manual_total_verified": int(getattr(manual_profile, "total_verified", 0) or 0), 
             "manual_last_scan_matched": manual_last_scan_matched,
             "show_filter_guide": show_filter_guide,  
+            **video_urls,
         },  
     )  
 
