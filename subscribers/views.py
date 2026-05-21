@@ -2335,8 +2335,10 @@ def profile_page(request, profile_mode=None):
 def update_admin_videos(request):
     row = AdminVideo.objects.filter(pk=1).first() or AdminVideo(pk=1)
     row.home_video_url = (request.POST.get("home_video_url") or "").strip()
-    row.task_video_url_subscribe = (request.POST.get("task_video_url_subscribe") or "").strip()
-    row.task_video_url_subscribe_verify = (request.POST.get("task_video_url_subscribe_verify") or "").strip()
+    manual_video_url = (request.POST.get("task_video_url_subscribe_verify") or "").strip()
+    # Keep manual subscribe/verify guide unified to a single URL.
+    row.task_video_url_subscribe = manual_video_url
+    row.task_video_url_subscribe_verify = manual_video_url
     row.task_video_url_facebook = (request.POST.get("task_video_url_facebook") or "").strip()
     row.task_video_url_facebook_verify = (request.POST.get("task_video_url_facebook_verify") or "").strip()
     row.save()
