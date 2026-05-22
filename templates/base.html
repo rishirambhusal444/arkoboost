@@ -230,6 +230,25 @@
             height: 20px;
         }
 
+        .nav-connect {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.4rem 0.75rem;
+            border-radius: 999px;
+            border: 1px solid #e5e7eb;
+            background: #fff;
+            color: #222;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+
+        .nav-connect.connected {
+            border-color: #86efac;
+            background: #ecfdf3;
+            color: #166534;
+        }
+
         /* Footer */
         footer {
             background: #333;
@@ -320,6 +339,15 @@
         </a>
         <ul>
             {% if user.is_authenticated %}
+                <li>
+                    {% with profile=user.subscriber_profiles.first %}
+                        {% if profile and profile.google_subject_id %}
+                            <a href="{% url 'subscribers:profile_google' %}" class="nav-connect connected">Google Connected</a>
+                        {% else %}
+                            <a href="{% url 'subscribers:google_connect' %}" class="nav-connect">Connect Google</a>
+                        {% endif %}
+                    {% endwith %}
+                </li>
                 <li class="account-item">
                     <button type="button" id="accountToggle" class="account-toggle" aria-expanded="false" aria-controls="accountMenu">
                         {% with profile=user.subscriber_profiles.first %}
