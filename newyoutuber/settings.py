@@ -198,6 +198,7 @@ ALLOWED_HOSTS = [
     for host in allowed_hosts_raw.split(",")
     if host.strip()
 ] or [
+    "yourusername.pythonanywhere.com",
     "arkoboost.onrender.com",
     "localhost",
     "127.0.0.1",

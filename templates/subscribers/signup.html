@@ -268,26 +268,6 @@
             <button type="submit" class="signup-button">Create Your Account Now</button>
         </form>
 
-        <div class="divider">
-            <span>OR</span>
-        </div>
-
-        <div class="info-box">
-            🔐 Sign up with Google for instant access to your YouTube analytics.
-        </div>
-
-        {% if oauth_ready %}
-            <a href="{% url 'subscribers:google_connect' %}" class="oauth-button">
-                <span>🔐</span>
-                <span>Sign Up with Google</span>
-            </a>
-        {% else %}
-            <div class="oauth-button disabled">
-                <span>⚠️</span>
-                <span>Google Sign Up Not Available</span>
-            </div>
-        {% endif %}
-
         <div class="login-link">
             Already have an account? <a href="{% url 'subscribers:login' %}">Sign in here</a>
         </div>
@@ -306,6 +286,7 @@
         })();
     </script>
 {% endblock %}
+
 
 
 

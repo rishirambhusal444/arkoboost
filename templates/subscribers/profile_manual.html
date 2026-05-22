@@ -33,6 +33,7 @@
             <div style="margin-top:0.8rem;display:flex;gap:0.6rem;flex-wrap:wrap;">
                 <a href="{% url 'subscribers:enter_youtube_tasks_manual' %}" class="btn btn-secondary">Edit YouTube Handle</a>
                 <a href="{% url 'subscribers:facebook_tasks_manual_enter' %}" class="btn btn-secondary">Edit Facebook Link</a>
+                <a href="{% url 'subscribers:google_connect' %}" class="btn btn-primary">Connect Google</a>
                 {% if user.is_staff %}
                     <a href="/admin/subscribers/adminvideo/" class="btn btn-primary">Manage Task Videos (Admin)</a>
                 {% endif %}

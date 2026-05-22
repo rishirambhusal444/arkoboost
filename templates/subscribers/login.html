@@ -287,31 +287,6 @@
             <button type="submit" class="manual-login-btn">Login with Username</button>
         </form>
 
-        <div class="divider"><span>OR</span></div>
-
-        <div class="platform-grid">
-            <section class="platform-card youtube">
-                <h2>Grow YouTube</h2>
-                <p>If you want to grow your YouTube channel, login with Google.</p>
-                {% if oauth_ready %}
-                    <a href="{% url 'subscribers:google_connect' %}" class="oauth-button">
-                        <span>G</span>
-                        <span>Continue with Google</span>
-                    </a>
-                {% else %}
-                    <div class="oauth-button disabled">
-                        <span>!</span>
-                        <span>Google OAuth Not Configured</span>
-                    </div>
-                {% endif %}
-            </section>
-
-        </div>
-
-        <div class="info-box">
-            Facebook login is hidden for now while Page permissions are prepared.
-        </div>
-
         <div class="signup-link" style="margin-top: 2rem; border-top: 1px solid #eee; padding-top: 1.5rem;">
             Don't have an account? <a href="{% url 'subscribers:signup' %}">Sign up here</a>
         </div>
