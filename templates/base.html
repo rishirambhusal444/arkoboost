@@ -339,15 +339,6 @@
         </a>
         <ul>
             {% if user.is_authenticated %}
-                <li>
-                    {% with profile=user.subscriber_profiles.first %}
-                        {% if profile and profile.google_subject_id %}
-                            <a href="{% url 'subscribers:profile_google' %}" class="nav-connect connected">Google Connected</a>
-                        {% else %}
-                            <a href="{% url 'subscribers:google_connect' %}" class="nav-connect">Connect Google</a>
-                        {% endif %}
-                    {% endwith %}
-                </li>
                 <li class="account-item">
                     <button type="button" id="accountToggle" class="account-toggle" aria-expanded="false" aria-controls="accountMenu">
                         {% with profile=user.subscriber_profiles.first %}
