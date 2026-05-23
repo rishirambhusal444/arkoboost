@@ -35,13 +35,26 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-%lq&84y#tbhs&5
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() == 'true'
 
 
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_list(name: str, default: list[str] | None = None) -> list[str]:
+    raw = os.environ.get(name, "")
+    items = [item.strip() for item in raw.split(",") if item.strip()]
+    if items:
+        return items
+    return default or []
+
+
+IS_PYTHONANYWHERE = env_bool("PYTHONANYWHERE", default=False)
 
 
 
-csrf_origins_raw = os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "")
-CSRF_TRUSTED_ORIGINS = [
-    origin.strip() for origin in csrf_origins_raw.split(",") if origin.strip()
-]
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
 
 # Application definition
@@ -95,12 +108,13 @@ WSGI_APPLICATION = 'newyoutuber.wsgi.application'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
 database_url = os.environ.get("DATABASE_URL")
+db_conn_max_age = int(os.environ.get("DB_CONN_MAX_AGE", "300"))
 
 if database_url:
     DATABASES = {
         "default": dj_database_url.config(
             default=database_url,
-            conn_max_age=600,
+            conn_max_age=db_conn_max_age,
             conn_health_checks=True,
         )
     }
@@ -108,7 +122,7 @@ elif DEBUG:
     DATABASES = {
         "default": dj_database_url.config(
             default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-            conn_max_age=600,
+            conn_max_age=db_conn_max_age,
             conn_health_checks=True,
         )
     }
@@ -185,6 +199,7 @@ FACEBOOK_GRAPH_VERSION = os.environ.get('FACEBOOK_GRAPH_VERSION', 'v22.0')
 # Task/rebalance runtime tuning
 REBALANCE_COOLDOWN_SECONDS = int(os.environ.get("REBALANCE_COOLDOWN_SECONDS", "30"))
 TASK_ACTIVITY_WINDOW_MINUTES = int(os.environ.get("TASK_ACTIVITY_WINDOW_MINUTES", "5"))
+YOUTUBE_HANDLE_STRICT_VERIFY = env_bool("YOUTUBE_HANDLE_STRICT_VERIFY", default=True)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
@@ -193,16 +208,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'subscribers.User'
 
 allowed_hosts_raw = os.environ.get("DJANGO_ALLOWED_HOSTS", "")
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in allowed_hosts_raw.split(",")
-    if host.strip()
-] or [
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", default=[
     "yourusername.pythonanywhere.com",
     "arkoboost.onrender.com",
     "localhost",
     "127.0.0.1",
-]
+])
+
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
+    SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", default=True)
+    CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", default=True)
+    SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", default=True)
+    SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=True)
+    SECURE_HSTS_PRELOAD = env_bool("SECURE_HSTS_PRELOAD", default=False)
 
 
 LOGGING = {

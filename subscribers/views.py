@@ -1542,6 +1542,7 @@ def _normalize_youtube_handle(raw_value: str) -> str:
 def _youtube_handle_exists(handle: str) -> bool:
     if not handle:
         return False
+    strict_verify = bool(getattr(settings, "YOUTUBE_HANDLE_STRICT_VERIFY", True))
     url = f"https://www.youtube.com/@{quote(handle)}"
     req = Request(
         url,
@@ -1556,9 +1557,15 @@ def _youtube_handle_exists(handle: str) -> bool:
             code = getattr(resp, "status", 200) or 200
             return code == 200 and "/@" in final_url
     except HTTPError as exc:
-        return False if exc.code in (404, 410) else False
-    except (URLError, TimeoutError, ValueError):
+        if exc.code in (404, 410):
+            return False
+        # On some hosts, YouTube can return 403/429 for bot/rate-limits.
+        # Non-strict mode avoids blocking all valid handles in that case.
+        if not strict_verify and exc.code in (401, 403, 429, 500, 502, 503, 504):
+            return True
         return False
+    except (URLError, TimeoutError, ValueError):
+        return False if strict_verify else True
 
 
 @login_required
