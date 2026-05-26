@@ -741,10 +741,10 @@ def _settle_source_assigned_score(watch_task: VideoWatchTask) -> None:
 
 
 def _completion_threshold_seconds(watch_task: VideoWatchTask) -> int:
-    """Complete when watched >= 50% of video length; fallback to task minimum if duration unknown."""
+    """Complete when watched >= 80% of video length; fallback to task minimum if duration unknown."""
     video_length = int(getattr(watch_task.video, "duration_seconds", 0) or 0)
     if video_length > 0:
-        return max(video_length // 2, 1)
+        return max(int(video_length * 0.8), 1)
     return max(int(watch_task.min_watch_time_seconds or 0), 1)
 
 

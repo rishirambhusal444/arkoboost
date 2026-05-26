@@ -93,6 +93,7 @@ LOYAL_SCORE_KEYWORDS = [
 REBALANCE_COOLDOWN_SECONDS = int(getattr(settings, "REBALANCE_COOLDOWN_SECONDS", 30))
 ACTIVITY_WINDOW_MINUTES = int(getattr(settings, "TASK_ACTIVITY_WINDOW_MINUTES", 5))
 LOCAL_ASSIGN_CAP = int(getattr(settings, "LOCAL_ASSIGN_CAP", 3))
+VIDEO_COMPLETION_RATIO = 0.8
 MANUAL_PENDING_STATUSES = (
     ManualSubscribeTaskAssign.STATUS_ASSIGNED,
     ManualSubscribeTaskAssign.STATUS_UNVERIFIED,
@@ -129,6 +130,13 @@ def _admin_video_urls() -> dict:
         "task_video_url_facebook_verify": home_video_url,
         "task_video_url_facebook_verify_is_file": bool(home_video_url),
     }
+
+
+def _video_completion_threshold_seconds(video: Video | None) -> int:
+    duration = int(getattr(video, "duration_seconds", 0) or 0)
+    if duration > 0:
+        return max(int(duration * VIDEO_COMPLETION_RATIO), 1)
+    return 60
 
 
 def _run_throttled_rebalance(now, mode: str, *, online_minutes: int = 10) -> bool:
@@ -2062,13 +2070,16 @@ def enter_youtube_tasks_manual(request):
 
 @login_required
 def enter_watch_tasks(request):
-    profile = _get_google_profile(request.user)
+    profile = SubscriberProfile.objects.filter(user=request.user).first()
     video_profile, _ = _get_or_create_video_profile(request.user)
     now = timezone.now()
     video_profile.active_status_for_video = True
     video_profile.active_status_for_youtube = False
     video_profile.last_video_entry_at = now
     video_profile.save(update_fields=["active_status_for_video", "active_status_for_youtube", "last_video_entry_at", "updated_at"])
+    auto_assigned_tasks = 0
+    if profile and video_profile.active_status_for_video:
+        auto_assigned_tasks = auto_assign_videos_if_needed(profile, max_tasks=3)
     watch_videos = (
         Video.objects.exclude(owner_user=request.user)
         .order_by("-updated_at")[:12]
@@ -2119,6 +2130,7 @@ def enter_watch_tasks(request):
         "active_videos": active_videos,
         "video_score": int(video_profile.video_score or 0),
         "video_score_reserved": int(video_profile.video_score_reserved or 0),
+        "auto_assigned_tasks": int(auto_assigned_tasks or 0),
     }
     return render(request, "subscribers/watch_enter.html", context)
 
@@ -3459,7 +3471,7 @@ def watch_video(request, task_id):
         messages.error(request, "Video not found.")
         return redirect("subscribers:watch_video_root")
 
-    min_watch = max((video.duration_seconds or 0) // 2, 1) if (video.duration_seconds or 0) > 0 else 60
+    min_watch = _video_completion_threshold_seconds(video)
     progress_pct = min(int((video.watched_time_seconds / min_watch) * 100), 100) if min_watch > 0 else 0
     progress = {
         "watch_time_seconds": int(video.watched_time_seconds or 0),
@@ -3514,7 +3526,7 @@ def start_watch_session(request, task_id):
         profile.last_tasks_entry_at = now
         profile.save(update_fields=["last_tasks_entry_at", "updated_at"])
 
-    min_watch = max((video.duration_seconds or 0) // 2, 1) if (video.duration_seconds or 0) > 0 else 60
+    min_watch = _video_completion_threshold_seconds(video)
     return JsonResponse(
         {
             "success": True,
@@ -3570,7 +3582,7 @@ def save_watch_time(request):
             video.watched_time_seconds = F("watched_time_seconds") + watch_time
             video.save(update_fields=["owner_user", "watched_time_seconds", "updated_at"])
             video.refresh_from_db(fields=["duration_seconds", "watched_time_seconds", "status"])
-            if video.duration_seconds > 0 and video.watched_time_seconds >= max(video.duration_seconds // 2, 1):
+            if int(video.watched_time_seconds or 0) >= _video_completion_threshold_seconds(video):
                 video.status = Video.STATUS_COMPLETE
             elif video.status == Video.STATUS_COMPLETE:
                 video.status = Video.STATUS_PENDING
@@ -3589,7 +3601,7 @@ def save_watch_time(request):
                 )
             if watch_task:
                 watch_task.watch_time_seconds = int(watch_task.watch_time_seconds or 0) + watch_time
-                completion_threshold = max(int((int(video.duration_seconds or 0)) * 0.8), 1)
+                completion_threshold = _video_completion_threshold_seconds(video)
                 if watch_task.watch_time_seconds >= completion_threshold:
                     watch_task.verified_status = True
                     watch_task.status = VideoWatchTask.STATUS_COMPLETE
@@ -3670,7 +3682,7 @@ def update_watch_time(request, task_id):
     # Heartbeat endpoint now tracks activity/session state only.
 
     video.refresh_from_db(fields=["duration_seconds", "watched_time_seconds", "status", "updated_at"])
-    completion_threshold = max((video.duration_seconds or 0) // 2, 1) if (video.duration_seconds or 0) > 0 else 60
+    completion_threshold = _video_completion_threshold_seconds(video)
     if video.watched_time_seconds >= completion_threshold:
         video.status = Video.STATUS_COMPLETE
     else:
@@ -3727,7 +3739,7 @@ def complete_watch_task(request, task_id):
     if not video:
         return JsonResponse({"success": False, "error": "Video not found"}, status=404)
 
-    completion_threshold = max((video.duration_seconds or 0) // 2, 1) if (video.duration_seconds or 0) > 0 else 60
+    completion_threshold = _video_completion_threshold_seconds(video)
     if int(video.watched_time_seconds or 0) >= completion_threshold:
         video.status = Video.STATUS_COMPLETE
         video.save(update_fields=["status", "updated_at"])
@@ -3792,5 +3804,6 @@ from .services import (  # noqa: E402
     transfer_video_score_to_available,
     use_video_score,
     available_video_score,
+    auto_assign_videos_if_needed,
     assign_video_from_source_profile,
 )

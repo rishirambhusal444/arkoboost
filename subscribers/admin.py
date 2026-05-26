@@ -16,6 +16,7 @@ from .models import (
     User,
     VerificationImage,
     Video,
+    VideoWatchTask,
 )
 
 
@@ -205,6 +206,33 @@ class VideoAdmin(admin.ModelAdmin):
     list_filter = ("status", "created_at", "updated_at")
     readonly_fields = ("created_at", "updated_at")
     list_select_related = ("owner_user",)
+
+
+@admin.register(VideoWatchTask)
+class VideoWatchTaskAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "profile",
+        "video",
+        "source_profile",
+        "assigned_video_score",
+        "watch_time_seconds",
+        "min_watch_time_seconds",
+        "status",
+        "verified_status",
+        "verified_at",
+        "updated_at",
+    )
+    list_filter = ("status", "verified_status", "created_at", "updated_at")
+    search_fields = (
+        "profile__user__username",
+        "profile__handle",
+        "video__video_url",
+        "source_profile__user__username",
+        "source_profile__handle",
+    )
+    readonly_fields = ("created_at", "updated_at", "last_attempt_at")
+    list_select_related = ("profile__user", "video", "source_profile__user")
 
 
 @admin.register(ManualSubscribeProfile)
