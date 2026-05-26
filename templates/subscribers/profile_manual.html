@@ -99,9 +99,17 @@
         {% if user.is_staff %}
         <section class="profile-card">
             <h2>Guide Admin Videos</h2>
-            <p style="margin-top:0.2rem;color:#475569;">Upload the YouTube guide and Facebook guide videos.</p>
+            <p style="margin-top:0.2rem;color:#475569;">Upload guide video files for all slots.</p>
             <form method="post" action="{% url 'subscribers:update_admin_videos' %}" enctype="multipart/form-data" style="display:grid;gap:0.7rem;margin-top:0.8rem;">
                 {% csrf_token %}
+                <label>
+                    Home Video File
+                    <input type="file" name="home_video_file" accept="video/*" style="width:100%;padding:0.35rem;margin-top:0.2rem;">
+                </label>
+                {% if admin_video_settings.home_video_file %}
+                    <p style="margin:0;color:#475569;">Current home file: {{ admin_video_settings.home_video_file.name }}</p>
+                    <label><input type="checkbox" name="clear_home_video_file" value="1"> Remove current home video file</label>
+                {% endif %}
                 <label>
                     YouTube Guide Video File
                     <input type="file" name="task_video_file_subscribe" accept="video/*" style="width:100%;padding:0.35rem;margin-top:0.2rem;">
@@ -111,12 +119,28 @@
                     <label><input type="checkbox" name="clear_task_video_file_subscribe" value="1"> Remove current YouTube guide video file</label>
                 {% endif %}
                 <label>
+                    Profile Guide Video File
+                    <input type="file" name="manual_profile_video_file" accept="video/*" style="width:100%;padding:0.35rem;margin-top:0.2rem;">
+                </label>
+                {% if admin_video_settings.manual_profile_video_file %}
+                    <p style="margin:0;color:#475569;">Current profile guide file: {{ admin_video_settings.manual_profile_video_file.name }}</p>
+                    <label><input type="checkbox" name="clear_manual_profile_video_file" value="1"> Remove current profile guide video file</label>
+                {% endif %}
+                <label>
                     Facebook Guide Video File
                     <input type="file" name="task_video_file_facebook" accept="video/*" style="width:100%;padding:0.35rem;margin-top:0.2rem;">
                 </label>
                 {% if admin_video_settings.task_video_file_facebook %}
                     <p style="margin:0;color:#475569;">Current Facebook guide file: {{ admin_video_settings.task_video_file_facebook.name }}</p>
                     <label><input type="checkbox" name="clear_task_video_file_facebook" value="1"> Remove current Facebook guide video file</label>
+                {% endif %}
+                <label>
+                    Facebook Verify Guide Video File
+                    <input type="file" name="task_video_file_facebook_verify" accept="video/*" style="width:100%;padding:0.35rem;margin-top:0.2rem;">
+                </label>
+                {% if admin_video_settings.task_video_file_facebook_verify %}
+                    <p style="margin:0;color:#475569;">Current Facebook verify file: {{ admin_video_settings.task_video_file_facebook_verify.name }}</p>
+                    <label><input type="checkbox" name="clear_task_video_file_facebook_verify" value="1"> Remove current Facebook verify video file</label>
                 {% endif %}
                 <div>
                     <button type="submit" class="btn btn-primary">Save Video Settings</button>

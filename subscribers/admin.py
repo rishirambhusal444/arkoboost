@@ -332,8 +332,11 @@ class AdminVideoForm(forms.ModelForm):
         model = AdminVideo
         fields = "__all__"
         labels = {
+            "home_video_file": "Home Video File",
             "task_video_file_subscribe": "YouTube Guide Video File",
+            "manual_profile_video_file": "Profile Guide Video File",
             "task_video_file_facebook": "Facebook Guide Video File",
+            "task_video_file_facebook_verify": "Facebook Verify Guide Video File",
         }
 
 
@@ -342,13 +345,19 @@ class AdminVideoAdmin(admin.ModelAdmin):
     form = AdminVideoForm
     list_display = (
         "id",
+        "home_video_file",
         "task_video_file_subscribe",
+        "manual_profile_video_file",
         "task_video_file_facebook",
+        "task_video_file_facebook_verify",
         "updated_at",
     )
     fields = (
+        "home_video_file",
         "task_video_file_subscribe",
+        "manual_profile_video_file",
         "task_video_file_facebook",
+        "task_video_file_facebook_verify",
         "updated_at",
     )
     readonly_fields = ("updated_at",)
