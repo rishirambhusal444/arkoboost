@@ -148,7 +148,6 @@
         overflow: hidden;
         background: #000;
     }
-    .video-frame-wrap iframe,
     .video-frame-wrap video {
         position: absolute;
         inset: 0;
@@ -251,21 +250,10 @@
         <section class="manual-video-card">
             <h3>Manual Task Video</h3>
             <div class="video-frame-wrap">
-                {% if task_video_url_subscribe_is_file %}
-                    <video controls preload="metadata">
-                        <source src="{{ task_video_url_subscribe }}">
-                        Your browser does not support the video tag.
-                    </video>
-                {% else %}
-                    <iframe
-                        src="{{ task_video_url_subscribe }}"
-                        title="Manual Task Guide"
-                        loading="lazy"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                        referrerpolicy="strict-origin-when-cross-origin"
-                        allowfullscreen
-                    ></iframe>
-                {% endif %}
+                <video controls preload="metadata">
+                    <source src="{{ task_video_url_subscribe }}">
+                    Your browser does not support the video tag.
+                </video>
             </div>
         </section>
         {% if has_handle %}

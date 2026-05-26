@@ -28,19 +28,10 @@
 
 <div class="page-wrap">
     <section class="promo-card">
-        {% if home_video_is_file %}
-            <video class="promo-frame" controls preload="metadata">
-                <source src="{{ home_video_url }}">
-                Your browser does not support the video tag.
-            </video>
-        {% else %}
-            <iframe class="promo-frame"
-                src="{{ home_video_url }}"
-                title="Arkoboost Promo"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowfullscreen>
-            </iframe>
-        {% endif %}
+        <video class="promo-frame" controls preload="metadata">
+            <source src="{{ home_video_url }}">
+            Your browser does not support the video tag.
+        </video>
 
         <div class="quick-actions">
             <article class="quick-item">

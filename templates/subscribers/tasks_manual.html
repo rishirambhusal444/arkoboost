@@ -323,20 +323,10 @@
                 <div class="manual-video-card">
                     <h3>Manual Task Guide Video</h3>
                     <p>Use this guide for subscribe and verify steps.</p>
-                    {% if task_video_url_subscribe_verify_is_file %}
-                        <video class="manual-guide-video" controls preload="metadata">
-                            <source src="{{ task_video_url_subscribe_verify }}">
-                            Your browser does not support the video tag.
-                        </video>
-                    {% else %}
-                        <iframe
-                            class="manual-guide-video"
-                            src="{{ task_video_url_subscribe_verify }}"
-                            title="Manual task guide"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                            allowfullscreen
-                        ></iframe>
-                    {% endif %}
+                    <video class="manual-guide-video" controls preload="metadata">
+                        <source src="{{ task_video_url_subscribe_verify }}">
+                        Your browser does not support the video tag.
+                    </video>
                 </div>
             </div>
         </section>
