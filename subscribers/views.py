@@ -71,8 +71,6 @@ from .ocr import get_ocr_text
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_GUIDE_VIDEO_URL = "https://www.youtube.com/embed/dQw4w9WgXcQ"
-
 HEARTBEAT_MIN_SECONDS = 2
 HEARTBEAT_MAX_SECONDS = 15
 MAX_VALID_SECONDS_PER_MINUTE = 45
@@ -108,48 +106,23 @@ FACEBOOK_PENDING_STATUSES = (
 def _admin_video_urls() -> dict:
     row = AdminVideo.objects.filter(pk=1).first()
 
-    def _pick(url_value: str, file_field_name: str) -> tuple[str, bool]:
+    def _file_url(file_field_name: str) -> str:
         file_obj = getattr(row, file_field_name, None) if row else None
-        if file_obj and getattr(file_obj, "url", ""):
-            return file_obj.url, True
-        cleaned_url = (url_value or "").strip()
-        if cleaned_url:
-            return cleaned_url, False
-        return DEFAULT_GUIDE_VIDEO_URL, False
+        return getattr(file_obj, "url", "") or ""
 
-    home_video_url, home_video_is_file = _pick(getattr(row, "home_video_url", ""), "home_video_file")
-    manual_profile_video_url = getattr(row, "manual_profile_video_url", "") or ""
-    task_video_url_subscribe, task_video_url_subscribe_is_file = _pick(
-        manual_profile_video_url or getattr(row, "task_video_url_subscribe", ""),
-        "manual_profile_video_file",
-    )
-    task_video_url_subscribe_verify, task_video_url_subscribe_verify_is_file = _pick(
-        manual_profile_video_url or getattr(row, "task_video_url_subscribe_verify", ""),
-        "manual_profile_video_file",
-    )
-    task_video_url_facebook, task_video_url_facebook_is_file = _pick(
-        manual_profile_video_url or getattr(row, "task_video_url_facebook", ""),
-        "manual_profile_video_file",
-    )
-    task_video_url_facebook_verify, task_video_url_facebook_verify_is_file = _pick(
-        manual_profile_video_url or getattr(row, "task_video_url_facebook_verify", ""),
-        "manual_profile_video_file",
-    )
-    if row and row.manual_profile_video_file:
-        home_video_url = row.manual_profile_video_file.url
-        home_video_is_file = True
+    home_video_url = _file_url("home_video_file")
 
     return {
         "home_video_url": home_video_url,
-        "home_video_is_file": home_video_is_file,
-        "task_video_url_subscribe": task_video_url_subscribe,
-        "task_video_url_subscribe_is_file": task_video_url_subscribe_is_file,
-        "task_video_url_subscribe_verify": task_video_url_subscribe_verify,
-        "task_video_url_subscribe_verify_is_file": task_video_url_subscribe_verify_is_file,
-        "task_video_url_facebook": task_video_url_facebook,
-        "task_video_url_facebook_is_file": task_video_url_facebook_is_file,
-        "task_video_url_facebook_verify": task_video_url_facebook_verify,
-        "task_video_url_facebook_verify_is_file": task_video_url_facebook_verify_is_file,
+        "home_video_is_file": bool(home_video_url),
+        "task_video_url_subscribe": home_video_url,
+        "task_video_url_subscribe_is_file": bool(home_video_url),
+        "task_video_url_subscribe_verify": home_video_url,
+        "task_video_url_subscribe_verify_is_file": bool(home_video_url),
+        "task_video_url_facebook": home_video_url,
+        "task_video_url_facebook_is_file": bool(home_video_url),
+        "task_video_url_facebook_verify": home_video_url,
+        "task_video_url_facebook_verify_is_file": bool(home_video_url),
     }
 
 

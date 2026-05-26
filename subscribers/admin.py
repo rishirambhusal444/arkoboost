@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django import forms
 from django.contrib import messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
@@ -326,21 +327,28 @@ class VerificationImageAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "updated_at")
 
 
+class AdminVideoForm(forms.ModelForm):
+    class Meta:
+        model = AdminVideo
+        fields = "__all__"
+        labels = {
+            "task_video_file_subscribe": "YouTube Guide Video File",
+            "task_video_file_facebook": "Facebook Guide Video File",
+        }
+
+
 @admin.register(AdminVideo)
 class AdminVideoAdmin(admin.ModelAdmin):
+    form = AdminVideoForm
     list_display = (
         "id",
-        "home_video_url",
-        "home_video_file",
-        "manual_profile_video_url",
-        "manual_profile_video_file",
-        "task_video_url_subscribe",
         "task_video_file_subscribe",
-        "task_video_url_subscribe_verify",
-        "task_video_url_facebook",
         "task_video_file_facebook",
-        "task_video_url_facebook_verify",
-        "task_video_file_facebook_verify",
+        "updated_at",
+    )
+    fields = (
+        "task_video_file_subscribe",
+        "task_video_file_facebook",
         "updated_at",
     )
     readonly_fields = ("updated_at",)
