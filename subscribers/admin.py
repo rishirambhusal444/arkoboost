@@ -332,6 +332,8 @@ class AdminVideoAdmin(admin.ModelAdmin):
         "id",
         "home_video_url",
         "home_video_file",
+        "manual_profile_video_url",
+        "manual_profile_video_file",
         "task_video_url_subscribe",
         "task_video_file_subscribe",
         "task_video_url_subscribe_verify",

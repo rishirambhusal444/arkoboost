@@ -498,6 +498,8 @@ class VerificationImage(models.Model):
 class AdminVideo(models.Model):
     home_video_url = models.URLField(blank=True)
     home_video_file = models.FileField(upload_to="admin_videos/", blank=True, null=True)
+    manual_profile_video_url = models.URLField(blank=True)
+    manual_profile_video_file = models.FileField(upload_to="admin_videos/", blank=True, null=True)
     task_video_url_subscribe = models.URLField(blank=True)
     task_video_file_subscribe = models.FileField(upload_to="admin_videos/", blank=True, null=True)
     task_video_url_subscribe_verify = models.URLField(blank=True)

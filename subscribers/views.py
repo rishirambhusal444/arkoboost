@@ -118,13 +118,14 @@ def _admin_video_urls() -> dict:
         return DEFAULT_GUIDE_VIDEO_URL, False
 
     home_video_url, home_video_is_file = _pick(getattr(row, "home_video_url", ""), "home_video_file")
+    manual_profile_video_url = getattr(row, "manual_profile_video_url", "") or ""
     task_video_url_subscribe, task_video_url_subscribe_is_file = _pick(
-        getattr(row, "task_video_url_subscribe", ""),
-        "task_video_file_subscribe",
+        manual_profile_video_url or getattr(row, "task_video_url_subscribe", ""),
+        "manual_profile_video_file",
     )
     task_video_url_subscribe_verify, task_video_url_subscribe_verify_is_file = _pick(
-        getattr(row, "task_video_url_subscribe_verify", ""),
-        "task_video_file_subscribe",
+        manual_profile_video_url or getattr(row, "task_video_url_subscribe_verify", ""),
+        "manual_profile_video_file",
     )
     task_video_url_facebook, task_video_url_facebook_is_file = _pick(
         getattr(row, "task_video_url_facebook", ""),
@@ -2375,8 +2376,13 @@ def profile_page(request, profile_mode=None):
 def update_admin_videos(request):
     row = AdminVideo.objects.filter(pk=1).first() or AdminVideo(pk=1)
     row.home_video_url = (request.POST.get("home_video_url") or "").strip()
-    manual_video_url = (request.POST.get("task_video_url_subscribe_verify") or "").strip()
+    manual_video_url = (
+        request.POST.get("manual_profile_video_url")
+        or request.POST.get("task_video_url_subscribe_verify")
+        or ""
+    ).strip()
     # Keep manual subscribe/verify guide unified to a single URL.
+    row.manual_profile_video_url = manual_video_url
     row.task_video_url_subscribe = manual_video_url
     row.task_video_url_subscribe_verify = manual_video_url
     row.task_video_url_facebook = (request.POST.get("task_video_url_facebook") or "").strip()
@@ -2388,6 +2394,9 @@ def update_admin_videos(request):
     if request.POST.get("clear_task_video_file_subscribe") == "1" and row.task_video_file_subscribe:
         row.task_video_file_subscribe.delete(save=False)
         row.task_video_file_subscribe = None
+    if request.POST.get("clear_manual_profile_video_file") == "1" and row.manual_profile_video_file:
+        row.manual_profile_video_file.delete(save=False)
+        row.manual_profile_video_file = None
     if request.POST.get("clear_task_video_file_facebook") == "1" and row.task_video_file_facebook:
         row.task_video_file_facebook.delete(save=False)
         row.task_video_file_facebook = None
@@ -2399,6 +2408,8 @@ def update_admin_videos(request):
         row.home_video_file = request.FILES["home_video_file"]
     if request.FILES.get("task_video_file_subscribe"):
         row.task_video_file_subscribe = request.FILES["task_video_file_subscribe"]
+    if request.FILES.get("manual_profile_video_file"):
+        row.manual_profile_video_file = request.FILES["manual_profile_video_file"]
     if request.FILES.get("task_video_file_facebook"):
         row.task_video_file_facebook = request.FILES["task_video_file_facebook"]
     if request.FILES.get("task_video_file_facebook_verify"):
