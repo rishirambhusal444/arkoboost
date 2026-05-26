@@ -88,12 +88,15 @@
 }
 
 .promo-frame {
-    width: 100%;
-    aspect-ratio: 16 / 9;
+    display: block;
+    width: min(100%, 420px);
+    aspect-ratio: 9 / 16;
     height: auto;
+    margin: 0 auto;
     border: 0;
     border-radius: 10px;
     background: #111;
+    object-fit: contain;
 }
 
 .quick-actions {

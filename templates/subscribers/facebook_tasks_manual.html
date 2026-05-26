@@ -108,6 +108,18 @@
         border-radius: 8px;
         padding: 0.5rem 0.65rem;
     }
+
+    .guide-video-portrait {
+        display: block;
+        width: min(100%, 420px);
+        aspect-ratio: 9 / 16;
+        height: auto;
+        margin: 0 auto;
+        border: 0;
+        border-radius: 10px;
+        background: #000;
+        object-fit: contain;
+    }
 {% endblock %}
 
 {% block content %}
@@ -150,7 +162,7 @@
         <section class="task-panel">
             <h2>Facebook Follow Guide</h2>
             <div style="margin-top:0.8rem;">
-                <video style="width:100%;max-width:980px;height:360px;border:0;border-radius:10px;background:#000;" controls preload="metadata">
+                <video class="guide-video-portrait" controls preload="metadata">
                     <source src="{{ task_video_url_facebook }}">
                     Your browser does not support the video tag.
                 </video>
@@ -160,7 +172,7 @@
         <section class="task-panel">
             <h2>Facebook Verification Guide</h2>
             <div style="margin-top:0.8rem;">
-                <video style="width:100%;max-width:980px;height:360px;border:0;border-radius:10px;background:#000;" controls preload="metadata">
+                <video class="guide-video-portrait" controls preload="metadata">
                     <source src="{{ task_video_url_facebook_verify }}">
                     Your browser does not support the video tag.
                 </video>

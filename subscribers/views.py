@@ -128,13 +128,16 @@ def _admin_video_urls() -> dict:
         "manual_profile_video_file",
     )
     task_video_url_facebook, task_video_url_facebook_is_file = _pick(
-        getattr(row, "task_video_url_facebook", ""),
-        "task_video_file_facebook",
+        manual_profile_video_url or getattr(row, "task_video_url_facebook", ""),
+        "manual_profile_video_file",
     )
     task_video_url_facebook_verify, task_video_url_facebook_verify_is_file = _pick(
-        getattr(row, "task_video_url_facebook_verify", ""),
-        "task_video_file_facebook_verify",
+        manual_profile_video_url or getattr(row, "task_video_url_facebook_verify", ""),
+        "manual_profile_video_file",
     )
+    if row and row.manual_profile_video_file:
+        home_video_url = row.manual_profile_video_file.url
+        home_video_is_file = True
 
     return {
         "home_video_url": home_video_url,
