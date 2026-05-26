@@ -107,12 +107,45 @@ FACEBOOK_PENDING_STATUSES = (
 
 def _admin_video_urls() -> dict:
     row = AdminVideo.objects.filter(pk=1).first()
+
+    def _pick(url_value: str, file_field_name: str) -> tuple[str, bool]:
+        file_obj = getattr(row, file_field_name, None) if row else None
+        if file_obj and getattr(file_obj, "url", ""):
+            return file_obj.url, True
+        cleaned_url = (url_value or "").strip()
+        if cleaned_url:
+            return cleaned_url, False
+        return DEFAULT_GUIDE_VIDEO_URL, False
+
+    home_video_url, home_video_is_file = _pick(getattr(row, "home_video_url", ""), "home_video_file")
+    task_video_url_subscribe, task_video_url_subscribe_is_file = _pick(
+        getattr(row, "task_video_url_subscribe", ""),
+        "task_video_file_subscribe",
+    )
+    task_video_url_subscribe_verify, task_video_url_subscribe_verify_is_file = _pick(
+        getattr(row, "task_video_url_subscribe_verify", ""),
+        "task_video_file_subscribe",
+    )
+    task_video_url_facebook, task_video_url_facebook_is_file = _pick(
+        getattr(row, "task_video_url_facebook", ""),
+        "task_video_file_facebook",
+    )
+    task_video_url_facebook_verify, task_video_url_facebook_verify_is_file = _pick(
+        getattr(row, "task_video_url_facebook_verify", ""),
+        "task_video_file_facebook_verify",
+    )
+
     return {
-        "home_video_url": (getattr(row, "home_video_url", "") or DEFAULT_GUIDE_VIDEO_URL),
-        "task_video_url_subscribe": (getattr(row, "task_video_url_subscribe", "") or DEFAULT_GUIDE_VIDEO_URL),
-        "task_video_url_subscribe_verify": (getattr(row, "task_video_url_subscribe_verify", "") or DEFAULT_GUIDE_VIDEO_URL),
-        "task_video_url_facebook": (getattr(row, "task_video_url_facebook", "") or DEFAULT_GUIDE_VIDEO_URL),
-        "task_video_url_facebook_verify": (getattr(row, "task_video_url_facebook_verify", "") or DEFAULT_GUIDE_VIDEO_URL),
+        "home_video_url": home_video_url,
+        "home_video_is_file": home_video_is_file,
+        "task_video_url_subscribe": task_video_url_subscribe,
+        "task_video_url_subscribe_is_file": task_video_url_subscribe_is_file,
+        "task_video_url_subscribe_verify": task_video_url_subscribe_verify,
+        "task_video_url_subscribe_verify_is_file": task_video_url_subscribe_verify_is_file,
+        "task_video_url_facebook": task_video_url_facebook,
+        "task_video_url_facebook_is_file": task_video_url_facebook_is_file,
+        "task_video_url_facebook_verify": task_video_url_facebook_verify,
+        "task_video_url_facebook_verify_is_file": task_video_url_facebook_verify_is_file,
     }
 
 
@@ -2348,8 +2381,31 @@ def update_admin_videos(request):
     row.task_video_url_subscribe_verify = manual_video_url
     row.task_video_url_facebook = (request.POST.get("task_video_url_facebook") or "").strip()
     row.task_video_url_facebook_verify = (request.POST.get("task_video_url_facebook_verify") or "").strip()
+
+    if request.POST.get("clear_home_video_file") == "1" and row.home_video_file:
+        row.home_video_file.delete(save=False)
+        row.home_video_file = None
+    if request.POST.get("clear_task_video_file_subscribe") == "1" and row.task_video_file_subscribe:
+        row.task_video_file_subscribe.delete(save=False)
+        row.task_video_file_subscribe = None
+    if request.POST.get("clear_task_video_file_facebook") == "1" and row.task_video_file_facebook:
+        row.task_video_file_facebook.delete(save=False)
+        row.task_video_file_facebook = None
+    if request.POST.get("clear_task_video_file_facebook_verify") == "1" and row.task_video_file_facebook_verify:
+        row.task_video_file_facebook_verify.delete(save=False)
+        row.task_video_file_facebook_verify = None
+
+    if request.FILES.get("home_video_file"):
+        row.home_video_file = request.FILES["home_video_file"]
+    if request.FILES.get("task_video_file_subscribe"):
+        row.task_video_file_subscribe = request.FILES["task_video_file_subscribe"]
+    if request.FILES.get("task_video_file_facebook"):
+        row.task_video_file_facebook = request.FILES["task_video_file_facebook"]
+    if request.FILES.get("task_video_file_facebook_verify"):
+        row.task_video_file_facebook_verify = request.FILES["task_video_file_facebook_verify"]
+
     row.save()
-    messages.success(request, "Admin video URLs updated.")
+    messages.success(request, "Admin video settings updated.")
     return redirect("subscribers:profile_manual")
 
 

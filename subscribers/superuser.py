@@ -7,7 +7,7 @@ from django.db import OperationalError, ProgrammingError
 def ensure_startup_superuser():
     username = os.environ.get("DJANGO_SUPERUSER_USERNAME", "superadmin")
     email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@example.com")
-    password = os.environ.get("DJANGO_SUPERUSER_PASSWORD") or "Superadmin@123"
+    password = os.environ.get("DJANGO_SUPERUSER_PASSWORD")
 
     if not password:
         return "DJANGO_SUPERUSER_PASSWORD is not set; skipping superuser creation."

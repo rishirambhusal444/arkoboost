@@ -331,10 +331,14 @@ class AdminVideoAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "home_video_url",
+        "home_video_file",
         "task_video_url_subscribe",
+        "task_video_file_subscribe",
         "task_video_url_subscribe_verify",
         "task_video_url_facebook",
+        "task_video_file_facebook",
         "task_video_url_facebook_verify",
+        "task_video_file_facebook_verify",
         "updated_at",
     )
     readonly_fields = ("updated_at",)

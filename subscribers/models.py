@@ -497,10 +497,14 @@ class VerificationImage(models.Model):
 
 class AdminVideo(models.Model):
     home_video_url = models.URLField(blank=True)
+    home_video_file = models.FileField(upload_to="admin_videos/", blank=True, null=True)
     task_video_url_subscribe = models.URLField(blank=True)
+    task_video_file_subscribe = models.FileField(upload_to="admin_videos/", blank=True, null=True)
     task_video_url_subscribe_verify = models.URLField(blank=True)
     task_video_url_facebook = models.URLField(blank=True)
+    task_video_file_facebook = models.FileField(upload_to="admin_videos/", blank=True, null=True)
     task_video_url_facebook_verify = models.URLField(blank=True)
+    task_video_file_facebook_verify = models.FileField(upload_to="admin_videos/", blank=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

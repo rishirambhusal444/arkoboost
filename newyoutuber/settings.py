@@ -32,7 +32,7 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-%lq&84y#tbhs&5#18!smko5$0cdtwq8=*x@es^vg-p4_8dpv^h')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() == 'true'
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() == 'true'
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -173,6 +173,8 @@ STATICFILES_DIRS = [
 ]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", str(BASE_DIR / "media")))
 
 LOGIN_URL = 'subscribers:login'
 LOGIN_REDIRECT_URL = 'subscribers:dashboard'

@@ -3,6 +3,10 @@ services:
     name: arkoboost
     env: python
     plan: free
+    disks:
+      - name: media-disk
+        mountPath: /opt/render/project/src/media
+        sizeGB: 1
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
     startCommand: python manage.py migrate && python manage.py create_superuser && gunicorn newyoutuber.wsgi:application
     envVars:
@@ -22,6 +26,8 @@ services:
         value: "False"
       - key: DJANGO_ALLOWED_HOSTS
         value: "arkoboost.onrender.com,.onrender.com"
+      - key: MEDIA_ROOT
+        value: "/opt/render/project/src/media"
 
 databases:
   - name: arkoboost-db

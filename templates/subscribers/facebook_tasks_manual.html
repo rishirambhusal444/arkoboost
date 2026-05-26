@@ -150,26 +150,40 @@
         <section class="task-panel">
             <h2>Facebook Follow Guide</h2>
             <div style="margin-top:0.8rem;">
-                <iframe
-                    style="width:100%;max-width:980px;height:360px;border:0;border-radius:10px;background:#000;"
-                    src="{{ task_video_url_facebook }}"
-                    title="Facebook follow guide"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowfullscreen
-                ></iframe>
+                {% if task_video_url_facebook_is_file %}
+                    <video style="width:100%;max-width:980px;height:360px;border:0;border-radius:10px;background:#000;" controls preload="metadata">
+                        <source src="{{ task_video_url_facebook }}">
+                        Your browser does not support the video tag.
+                    </video>
+                {% else %}
+                    <iframe
+                        style="width:100%;max-width:980px;height:360px;border:0;border-radius:10px;background:#000;"
+                        src="{{ task_video_url_facebook }}"
+                        title="Facebook follow guide"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowfullscreen
+                    ></iframe>
+                {% endif %}
             </div>
         </section>
 
         <section class="task-panel">
             <h2>Facebook Verification Guide</h2>
             <div style="margin-top:0.8rem;">
-                <iframe
-                    style="width:100%;max-width:980px;height:360px;border:0;border-radius:10px;background:#000;"
-                    src="{{ task_video_url_facebook_verify }}"
-                    title="Facebook verification guide"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowfullscreen
-                ></iframe>
+                {% if task_video_url_facebook_verify_is_file %}
+                    <video style="width:100%;max-width:980px;height:360px;border:0;border-radius:10px;background:#000;" controls preload="metadata">
+                        <source src="{{ task_video_url_facebook_verify }}">
+                        Your browser does not support the video tag.
+                    </video>
+                {% else %}
+                    <iframe
+                        style="width:100%;max-width:980px;height:360px;border:0;border-radius:10px;background:#000;"
+                        src="{{ task_video_url_facebook_verify }}"
+                        title="Facebook verification guide"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowfullscreen
+                    ></iframe>
+                {% endif %}
             </div>
         </section>
 
