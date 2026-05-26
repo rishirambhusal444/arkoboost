@@ -9,6 +9,11 @@
     height: 500px;
 }
 
+.player-frame-wrap iframe {
+    width: 100% !important;
+    height: 500px !important;
+}
+
 .video-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -39,6 +44,10 @@
         height: 420px;
     }
 
+    .player-frame-wrap iframe {
+        height: 420px !important;
+    }
+
     .video-grid {
         grid-template-columns: repeat(2, 1fr);
     }
@@ -47,6 +56,10 @@
 @media (max-width: 640px) {
     #player {
         height: 260px;
+    }
+
+    .player-frame-wrap iframe {
+        height: 260px !important;
     }
 
     .video-grid {

@@ -347,7 +347,7 @@ def _featured_videos_for_watch_page(current_profile: SubscriberProfile | None, c
         ),
     )
     for item in sorted_videos:
-        yt_id = _extract_youtube_video_id(item.video_url) or "1jtVBdA7Q9A"
+        yt_id = _extract_youtube_video_id(item.video_url) or "dQw4w9WgXcQ"
         featured_videos.append(
             {
                 "db_id": item.id,
@@ -3503,7 +3503,7 @@ def watch_video(request, task_id):
     except Exception:
         logger.exception("Failed loading featured videos for watch page")
 
-    initial_video_id = _extract_youtube_video_id(video.video_url) or "1jtVBdA7Q9A"
+    initial_video_id = _extract_youtube_video_id(video.video_url) or "dQw4w9WgXcQ"
     initial_video_title = initial_video_id
     initial_video_channel = "YouTube Channel"
     
