@@ -223,30 +223,28 @@
     <section class="yt-hero">
         <h2>Manual Subscribe Task Entry</h2>
         <p>You are in manual mode. Continue to the dedicated manual task page.</p>
-        {% if not has_handle %}
-            <form id="yt-manual-handle-form" method="post" action="{% url 'subscribers:update_youtube_handle' %}" class="handle-box" data-validate-url="{% url 'subscribers:validate_youtube_handle' %}">
-                {% csrf_token %}
-                <input type="hidden" name="next_url" value="{% url 'subscribers:youtube_tasks_manual' %}">
-                <div class="handle-card">
-                    <h3>Handle Check Card</h3>
-                    <p>Check whether your handle opens correctly on YouTube before continuing.</p>
-                    <div class="handle-row">
-                        <input id="youtube_handle" name="youtube_handle" type="text" placeholder="@yourhandle or youtube.com/@yourhandle" required>
-                        <a id="check-yt-link" class="btn-check" href="https://www.youtube.com/" target="_blank" rel="noopener noreferrer">Check In YouTube</a>
-                    </div>
-                    <p id="yt-handle-help" class="handle-help">Allowed: 3-40 characters (letters, numbers, '.', '-' and '_').</p>
+        <form id="yt-manual-handle-form" method="post" action="{% url 'subscribers:update_youtube_handle' %}" class="handle-box" data-validate-url="{% url 'subscribers:validate_youtube_handle' %}">
+            {% csrf_token %}
+            <input type="hidden" name="next_url" value="{% if edit_mode %}{% url 'subscribers:enter_youtube_tasks_manual' %}?edit=1{% else %}{% url 'subscribers:youtube_tasks_manual' %}{% endif %}">
+            <div class="handle-card">
+                <h3>Handle Check Card</h3>
+                <p>Check whether your handle opens correctly on YouTube before continuing.</p>
+                <div class="handle-row">
+                    <input id="youtube_handle" name="youtube_handle" type="text" placeholder="@yourhandle or youtube.com/@yourhandle" value="{{ current_handle|default:'' }}" required>
+                    <a id="check-yt-link" class="btn-check" href="https://www.youtube.com/" target="_blank" rel="noopener noreferrer">Check In YouTube</a>
                 </div>
-                <div class="action-row">
-                    <label class="verify-row" style="margin-top:0;">
-                        <input id="confirm-verified" type="checkbox">
-                        I checked and this handle is correct.
-                    </label>
-                </div>
-                <div class="submit-row">
-                    <button id="continue-manual-btn" type="submit" class="btn btn-enter-task" style="pointer-events:none;opacity:0.55;">Submit And Continue</button>
-                </div>
-            </form>
-        {% endif %}
+                <p id="yt-handle-help" class="handle-help">Allowed: 3-40 characters (letters, numbers, '.', '-' and '_').</p>
+            </div>
+            <div class="action-row">
+                <label class="verify-row" style="margin-top:0;">
+                    <input id="confirm-verified" type="checkbox">
+                    I checked and this handle is correct.
+                </label>
+            </div>
+            <div class="submit-row">
+                <button id="continue-manual-btn" type="submit" class="btn btn-enter-task" style="pointer-events:none;opacity:0.55;">Submit And Continue</button>
+            </div>
+        </form>
         <section class="manual-video-card">
             <h3>Manual Task Video</h3>
             <div class="video-frame-wrap">

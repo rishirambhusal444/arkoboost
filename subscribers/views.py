@@ -2001,6 +2001,7 @@ def enter_youtube_tasks(request):
 def enter_youtube_tasks_manual(request):
     if _is_google_user(request.user):
         return redirect("subscribers:enter_youtube_tasks")
+    edit_mode = request.GET.get("edit") == "1"
     profile = SubscriberProfile.objects.filter(user=request.user).first()
 
     video_profile, _ = _get_or_create_video_profile(request.user)
@@ -2026,7 +2027,7 @@ def enter_youtube_tasks_manual(request):
         manual_profile.user = request.user
         profile_fields_to_update.append("user")
     desired_handle = (profile.handle if profile else request.user.handle) or request.user.username
-    if _has_valid_manual_handle(manual_profile, request.user, profile):
+    if _has_valid_manual_handle(manual_profile, request.user, profile) and not edit_mode:
         return redirect("subscribers:subscribe_tasks_manual")
     if manual_profile.handle != desired_handle:
         manual_profile.handle = desired_handle
@@ -2048,6 +2049,8 @@ def enter_youtube_tasks_manual(request):
     context = {
         "profile": profile or _manual_profile_defaults(request.user, manual_profile),
         "has_handle": bool((desired_handle or "").strip().startswith("@")),
+        "current_handle": desired_handle,
+        "edit_mode": edit_mode,
         "total_subscribed": int(profile.subscribed_channel_count or 0) if profile else 0,
         "channel_subscriber_total": int(profile.channel_subscriber_count or 0) if profile else 0,
         "new_subscribers": int(profile.subscriber_change_since_last_scan or 0) if profile else 0,
